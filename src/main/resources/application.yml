@@ -1,0 +1,64 @@
+server:
+  port: 8090
+  max-http-request-header-size: 65536
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 50MB
+      max-request-size: 60MB
+
+
+keycloak:
+    auth-server-url: https://preprod.sso.eqima.org
+    realm: EQIMA-Solution
+    resource: admin-cli
+    admin-password: refVojTurmUcUjracyochKot5
+    admin-username: admin
+    credentials:
+        secret: Jf6aCIRbHWVFSa1XG93ZjjPUTe2ZOwK1
+
+upload:
+    allowed-extensions: csv,xls,xlsx,pdf
+    max-file-size-mb: 50
+
+spring:
+    application:
+        name: keycloakadmin
+    security:
+        oauth2:
+            resourceserver:
+                jwt:
+                    issuer-uri: https://preprod.sso.eqima.org/realms/EQIMA-Solution
+                    jwk-set-uri: ${spring.security.oauth2.resourceserver.jwt.issuer-uri}/protocol/openid-connect/certs 
+                    cache-duration: 3600s
+    datasource:
+        url: jdbc:mysql://localhost:3306/plateforme_Saas
+        username: root
+        password: root
+        driver-class-name: com.mysql.cj.jdbc.Driver
+    jpa:
+        hibernate:
+            ddl-auto: update
+        show-sql: true
+        properties:
+            hibernate:
+                format_sql: true
+        database-platform: org.hibernate.dialect.MySQLDialect
+    web:
+        error:
+            include-exception: false
+            include-stacktrace: never
+            include-message: always
+
+swagger:
+  enabled: true
+  title: Tsinjo API
+  description: API documentation for Tsinjo application
+  version: 1.0.0
+  local-url: http://localhost:8090
+  server-url: https://preprod.saas.eqima.org
+
+encryption:
+    secret-key: a6fc92c5a3cee57d4090a9b45ad1f0cc
+
+debug: true
