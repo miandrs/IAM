@@ -1,6 +1,9 @@
 package com.eqima.keacloakadmin.service;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -8,6 +11,7 @@ import java.util.stream.Stream;
 
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.ClientResource;
+import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.GroupRepresentation;
@@ -66,14 +70,50 @@ public class RoleClientService {
             clientResource.toRepresentation().getClientId(),
             clientResource.roles().get(request.roleName()).toRepresentation().getId(),
             request.roleName(),
-            false
+            true
+        );
+    }
+
+    public RoleClientDto createRoleClient(CreateClientRoleRequest request) {
+        ClientRepresentation client = keycloak.realm(realmName)
+            .clients()
+            .findByClientId(request.clientId())
+            .stream().findFirst()
+            .orElseThrow(() -> new ResourceNotFoundException(
+                "Client inexistant : " + request.clientId()));
+
+        RoleRepresentation role = new RoleRepresentation();
+        role.setName(request.roleName());
+
+        keycloak.realm(realmName).clients().get(client.getId()).roles().create(role);
+
+        RoleRepresentation created = keycloak.realm(realmName).clients()
+            .get(client.getId()).roles().get(request.roleName()).toRepresentation();
+
+        return new RoleClientDto(
+            client.getId(), client.getClientId(),
+            created.getId(), created.getName(), created.isComposite()
         );
     }
 //Remove a client role
-    public String removeClientRole(String clientUuid, String roleName) {
+    public String removeClientRole(String clientUuid, String roleUuid) {
         ClientResource clientResource = keycloak.realm(realmName).clients().get(clientUuid);
-        clientResource.roles().deleteRole(roleName);
+        String roleName = clientResource.roles().get(roleUuid).toRepresentation().getName();
+        clientResource.roles().deleteRole(roleUuid);
         return roleName;
+    }
+
+    public void deleteRoleClient(String clientUuid, String roleUuid) {
+        RoleRepresentation role = keycloak.realm(realmName).clients()
+            .get(clientUuid).roles().list()
+            .stream()
+            .filter(r -> roleUuid.equals(r.getId()))
+            .findFirst()
+            .orElseThrow(() -> new ResourceNotFoundException(
+                "Rôle introuvable : " + roleUuid));
+
+        keycloak.realm(realmName).clients()
+            .get(clientUuid).roles().get(role.getName()).remove();
     }
 
 //Get all roles of a client
@@ -286,17 +326,40 @@ public class RoleClientService {
 
         return new PagedResult<RoleClientDto>(pageContent, page, size, totalElements, totalPages);
     }
-    public void assignClientRole(AssignClientRoleToUserRequest request) {
-        List<String> roles = userService.getUserRoles();
-        if (roles.contains("SUPERADMIN")) {
-            UserDTO user=userService.getUserById(request.userUuid());
-            assignClientRoleToGroup(new AssignClientRoleToGroup(user.groups().get(0), request.clientRoles()));
-            return;
-        } else {
-            assignClientRoleToUser(request);
+    // public void assignClientRole(AssignClientRoleToUserRequest request) {
+    //     if (request.clientRoles() == null || request.clientRoles().isEmpty()) return;
+    //     List<String> roles = userService.getUserRoles();
+    //     if (roles.contains("SUPERADMIN")) {
+    //         UserDTO user=userService.getUserById(request.userUuid());
+    //         assignClientRoleToGroup(new AssignClientRoleToGroup(user.groups().get(0), request.clientRoles()));
+    //         return;
+    //     } else {
+    //         assignClientRoleToUser(request);
+    //     }
+    // }
+    
+    public void assignClientRoles(AssignClientRoleToUserRequest req) {
+        if (req.clientRoles() == null || req.clientRoles().isEmpty()) return;
+
+        RealmResource realm = keycloak.realm(realmName);
+        UserResource user = realm.users().get(req.userUuid());
+
+        Map<String, List<RoleRepresentation>> byClient = new HashMap<>();
+        for (ClientRoleRequest r : req.clientRoles()) {
+            RoleRepresentation role = realm.clients().get(r.clientUuid())
+                .roles().list().stream()
+                .filter(x -> x.getName().equals(r.roleName()))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException(
+                    "Rôle '" + r.roleName() + "' introuvable sur le client " + r.clientUuid()));
+            byClient.computeIfAbsent(r.clientUuid(), k -> new ArrayList<>()).add(role);
         }
+
+        byClient.forEach((clientUuid, roles) ->
+            user.roles().clientLevel(clientUuid).add(roles));
     }
     public void removeAssignedClientRole(AssignClientRoleToUserRequest request) {
+        if (request.clientRoles() == null || request.clientRoles().isEmpty()) return;
         List<String> roles = userService.getUserRoles();
         if (roles.contains("SUPERADMIN")) {
             UserDTO user=userService.getUserById(request.userUuid());

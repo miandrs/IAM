@@ -1,7 +1,9 @@
 package com.eqima.keacloakadmin.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.keycloak.admin.client.CreatedResponseUtil;
@@ -18,6 +20,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
+import com.eqima.keacloakadmin.dto.ClientDetailsDto;
 import com.eqima.keacloakadmin.dto.ClientRepresentationDto;
 import com.eqima.keacloakadmin.dto.ClientRequest;
 import com.eqima.keacloakadmin.entity.KeycloakClient;
@@ -209,6 +212,21 @@ public class ClientService {
         return client;
     }
 
+    // ClientService
+// ClientService
+    public List<ClientRepresentationDto> findClientsManagedByCurrentUser() {
+        Jwt jwt = (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        Map<String, Object> resourceAccess = jwt.getClaimAsMap("resource_access");
+        if (resourceAccess == null || resourceAccess.isEmpty()) {
+            return List.of();
+        }
+        Set<String> managedClientIds = resourceAccess.keySet();
+
+        return fetchClients().stream() // fetchClients() already drops DEFAULT_CLIENTS (account, broker, etc.)
+            .filter(c -> managedClientIds.contains(c.getClientId()))
+            .collect(Collectors.toList());
+    }
+
     public List<ClientRepresentationDto> fetchClientsForRealm(String realmName) {
         RealmResource realmResource = keycloakAdmin.realm(realmName);
         ClientsResource clientsResource = realmResource.clients();
@@ -230,10 +248,20 @@ public class ClientService {
         );
     }
     public KeycloakClient findClientByRealmName(String realmName){
-        if(keycloakClientRepository.findByRealmName(realmName).size()<=0){
+        if(keycloakClientRepository.findByRealmName(realmName).isEmpty()){
             throw new ResourceNotFoundException("Client inexistant.");
         }
-        return keycloakClientRepository.findByRealmName(realmName).get(0);
+        return keycloakClientRepository.findByRealmName(realmName).get();
+    }
+
+    public ClientDetailsDto getDetails(String clientId) {
+        ClientRepresentation r = keycloakClient.realm(realmName).clients().findByClientId(clientId)
+        .stream().findFirst()
+        .orElseThrow(() -> new ResourceNotFoundException("Client inexistant."));
+
+        return new ClientDetailsDto(r.getId(), r.getClientId(), r.getName(),
+            r.isEnabled(), r.isPublicClient(), r.isBearerOnly(),
+            r.getProtocol(), r.getRedirectUris(), r.getWebOrigins());
     }
 
     public void updateClient(ClientRequest clientRequest, String clientId) {
@@ -248,7 +276,30 @@ public class ClientService {
         keycloakClient.realm(clientRequest.realmName()).clients().get(clientRepresentation.getId()).update(clientRepresentation);
     }
 
-    public void deleteClient(String realmName, String clientId) {
+    public void updateClientStatus(boolean status, String clientId) {
+
+        ClientRepresentation clientRepresentation = keycloakClient.realm(realmName).clients().findByClientId(clientId).get(0);
+
+        clientRepresentation.setEnabled(status);
+
+        keycloakClient.realm(realmName).clients().get(clientRepresentation.getId()).update(clientRepresentation);
+    }
+
+    public void updateRedirectUris(List<String> redirectUris, String clientId) {
+
+        ClientRepresentation clientRepresentation = keycloakClient.realm(realmName).clients().findByClientId(clientId).get(0);
+
+        clientRepresentation.setRedirectUris(redirectUris.stream().map(uri -> uri + "/*").collect(Collectors.toList()));
+        clientRepresentation.setWebOrigins(redirectUris);
+
+        keycloakClient.realm(realmName).clients().get(clientRepresentation.getId()).update(clientRepresentation);
+        keycloakClientRepository.findByRealmName(realmName).ifPresent(client -> {
+            client.setIssuerUri(redirectUris.get(0));
+            keycloakClientRepository.save(client);
+        });
+    }
+
+    public void deleteClient(String clientId) {
         ClientRepresentation clientRepresentation = keycloakClient.realm(realmName).clients().findByClientId(clientId).get(0);
         keycloakClient.realm(realmName).clients().get(clientRepresentation.getId()).remove();
     }

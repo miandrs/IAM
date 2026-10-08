@@ -72,9 +72,8 @@ public class UserController {
     }
 
     @PostMapping("/{id}")
-    public String postEnableorDisableUser(@RequestBody boolean enable, @PathVariable String id) {
-        userService.disableOrEnableUser(id, enable);
-        return "User enabled/disabled successfully";
+    public UserDTO postEnableorDisableUser(@RequestBody boolean enable, @PathVariable String id) {
+        return userService.disableOrEnableUser(id, enable);
     }
     
     @DeleteMapping ("/{id}/sessions")

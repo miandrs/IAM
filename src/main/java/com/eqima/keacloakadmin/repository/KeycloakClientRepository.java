@@ -12,6 +12,6 @@ import java.util.List;
 
 @Repository
 public interface KeycloakClientRepository extends JpaRepository<KeycloakClient, UUID> {
-    List<KeycloakClient> findByRealmName(String realmName);
+    Optional<KeycloakClient> findByRealmName(String realmName);
     Optional<KeycloakClient> findByIssuerUri(String issuerUri);
 }

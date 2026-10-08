@@ -266,10 +266,11 @@ public class UserService {
         user.setRequiredActions(updatedActions);
         users().get(userId).update(user);
     }
-    public void disableOrEnableUser(String userId, boolean enabled){
+    public UserDTO disableOrEnableUser(String userId, boolean enabled){
         UserRepresentation user = users().get(userId).toRepresentation();
         user.setEnabled(enabled);
         users().get(userId).update(user);
+        return getUserById(userId);
     }
     public void sessionRevoke(String userId){
         users().get(userId).logout();

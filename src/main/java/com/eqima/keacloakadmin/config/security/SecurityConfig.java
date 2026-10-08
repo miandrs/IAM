@@ -45,7 +45,7 @@ public class SecurityConfig {
         return request -> {
             var cors = new CorsConfiguration();
             cors.setAllowedOrigins(java.util.List.of("https://preprod.plateforme.eqima.org", "https://preprod.tsinjo.eqima.org","http://localhost:4200", "http://localhost:4300"));
-            cors.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+            cors.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
             cors.setAllowedHeaders(java.util.List.of("*"));
             cors.setExposedHeaders(java.util.List.of("*"));
             cors.setAllowCredentials(true);

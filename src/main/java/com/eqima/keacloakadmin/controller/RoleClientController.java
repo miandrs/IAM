@@ -38,14 +38,14 @@ public class RoleClientController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public RoleClientDto createRoleClient(@RequestBody CreateClientRoleRequest request) {
-        return roleClientService.createClientRole(request);
+        return roleClientService.createRoleClient(request);
     }
 
 //Remove a client role
     @DeleteMapping("/client/{clientUuid}/role/{roleUuid}")
     public Map<String, String> deleteRoleClient(@PathVariable String clientUuid, @PathVariable String roleUuid) {
-        String roleId = roleClientService.removeClientRole(clientUuid, roleUuid);
-        return Map.of("delete_id", roleId);
+        roleClientService.deleteRoleClient(clientUuid, roleUuid);
+        return Map.of("delete_id", roleUuid);
     }
 
 //Get all roles of a client
@@ -89,7 +89,7 @@ public class RoleClientController {
 //Assign role
     @PostMapping("/assign")
     public Map<String, String> assignClientRole(@RequestBody AssignClientRoleToUserRequest request) {
-        roleClientService.assignClientRole(request);
+        roleClientService.assignClientRoles(request);
         return Map.of("message", "Role(s) assigned successfully");
     }
 
@@ -99,8 +99,4 @@ public class RoleClientController {
         roleClientService.removeAssignedClientRole(request);
         return Map.of("message", "Role(s) removed successfully");
     }
-    
-    
-    
-
 }
