@@ -24,6 +24,7 @@ import com.eqima.keacloakadmin.entity.KeycloakUser;
 import com.eqima.keacloakadmin.entity.RequiredActions;
 import com.eqima.keacloakadmin.repository.KeycloakUserRepository;
 import com.eqima.keacloakadmin.request.CreateUserRequest;
+import com.eqima.keacloakadmin.util.SecurityUtils;
 
 import jakarta.ws.rs.core.Response;
 
@@ -39,10 +40,13 @@ public class UserService {
     @Value("${keycloak.realm}")
     private String realm;
 
-    public UserService(@Qualifier("keycloakClient") Keycloak keycloakClient, KeycloakUserRepository keycloakUserRepository, GroupService groupService) {
+    private final AuditService auditService;
+
+    public UserService(@Qualifier("keycloakClient") Keycloak keycloakClient, KeycloakUserRepository keycloakUserRepository, GroupService groupService, AuditService auditService) {
         this.keycloak = keycloakClient;
         this.keycloakUserRepository = keycloakUserRepository;
         this.groupService = groupService;
+        this.auditService = auditService;
     }
 
     private UsersResource users(){
@@ -227,6 +231,8 @@ public class UserService {
             assignRealmRoles(userId, List.of("USER"));
         }
 
+        auditService.log("CREATE_USER",  null, Map.of("userId", userId, "username", createUserRequest.username()));
+
         return userId;
     }  
     public void resetPassword(String userId, String password, boolean temporary){
@@ -236,6 +242,7 @@ public class UserService {
         credential.setTemporary(temporary);
 
         users().get(userId).resetPassword(credential);
+        auditService.log("RESET_PASSWORD",  null, Map.of("userId", userId));
     } 
     public UserDTO patchUser(String userId, CreateUserRequest createUserRequest){
         UserRepresentation user = users().get(userId).toRepresentation();
@@ -250,13 +257,14 @@ public class UserService {
         if(createUserRequest.groups()!=null && !createUserRequest.groups().isEmpty()){
             assignGroupsByName(userId, createUserRequest.groups());
         }
-
+        auditService.log("PATCH_USER",  null, Map.of("userId", userId, "username", createUserRequest.username()));
         return getUserById(userId);
     }
     public void requiredActionUpdatePassword(String userId, List<String> requiredActions){
         UserRepresentation user = users().get(userId).toRepresentation();
         user.setRequiredActions(requiredActions.stream().map(RequiredActions::fromString).map(RequiredActions::getAction).toList());
         users().get(userId).update(user);
+        auditService.log("UPDATE_REQUIRED_ACTIONS",  null, Map.of("userId", userId, "requiredActions", requiredActions.toString()));
     }
     public void deleteRequiredAction(String userId, String requiredAction){
         UserRepresentation user = users().get(userId).toRepresentation();
@@ -265,21 +273,26 @@ public class UserService {
                 .toList();
         user.setRequiredActions(updatedActions);
         users().get(userId).update(user);
+        auditService.log("DELETE_REQUIRED_ACTION",  null, Map.of("userId", userId, "requiredAction", requiredAction));
     }
     public UserDTO disableOrEnableUser(String userId, boolean enabled){
         UserRepresentation user = users().get(userId).toRepresentation();
         user.setEnabled(enabled);
         users().get(userId).update(user);
+        auditService.log("UPDATE_USER_STATUS",  null, Map.of("userId", userId, "enabled", enabled));
         return getUserById(userId);
     }
     public void sessionRevoke(String userId){
         users().get(userId).logout();
+        auditService.log("REVOKE_USER_SESSION",  null, Map.of("userId", userId));
     }
     public void sessionRevokeAll(){
         users().list().forEach(user -> {
             users().get(user.getId()).logout();
         });
+        auditService.log("REVOKE_ALL_USER_SESSIONS",  null, Map.of());
     }
+
     private void assignGroupsByName(String userId, List<String> groupNames) {
 
         GroupsResource groupsResource = keycloak.realm(realm).groups();
@@ -300,6 +313,7 @@ public class UserService {
 
             users().get(userId).joinGroup(groupOpt.get().getId());
         }
+        auditService.log("ASSIGN_GROUPS_TO_USER",  null, Map.of("userId", userId, "groupNames", groupNames.toString()));
     }
     private void assignRealmRoles(String userId, List<String> roleNames) {
         List<RoleRepresentation> rolesToAssign = keycloak.realm(realm)
@@ -310,6 +324,7 @@ public class UserService {
                 .toList();
 
         users().get(userId).roles().realmLevel().add(rolesToAssign);
+        auditService.log("ASSIGN_REALM_ROLES_TO_USER",  null, Map.of("userId", userId, "roleNames", roleNames.toString()));
     }
 
 //Use specific keycloak connection
@@ -337,6 +352,7 @@ public class UserService {
             assignGroupsByName(userId, createUserRequest.groups(),keycloak);
         }
 
+        auditService.log("CREATE_USER",  null, Map.of("userId", userId, "username", createUserRequest.username()));
         return userId;
     }
     public void resetPassword(String userId, String password, boolean temporary, Keycloak keycloak, String realm){
@@ -346,6 +362,7 @@ public class UserService {
         credential.setTemporary(temporary);
 
         users(keycloak,realm).get(userId).resetPassword(credential);
+        auditService.log("RESET_PASSWORD",  null, Map.of("userId", userId));
     }
     private void assignGroupsByName(String userId, List<String> groupNames,Keycloak keycloak) {
 
@@ -367,13 +384,16 @@ public class UserService {
 
             users(keycloak,realm).get(userId).joinGroup(groupOpt.get().getId());
         }
+        auditService.log("ASSIGN_GROUPS_TO_USER",  null, Map.of("userId", userId, "groupNames", groupNames.toString()));
     }
     
     public KeycloakUser mysqlSaveKeycloakUser(KeycloakUser user){
+        auditService.log("CREATE_USER",  null, Map.of("userId", user.getId(), "username", user.getUsername()));
         return this.keycloakUserRepository.save(user);
     }
 
     public Optional<KeycloakUser> mysqlGetKeycloakUserById(UUID id){
+        auditService.log("GET_USER",  null, Map.of("userId", id));
         return this.keycloakUserRepository.findById(id);
     }
 
@@ -394,6 +414,7 @@ public class UserService {
     // }
     public void deleteUser(String userId){
         users().delete(userId);
+        auditService.log("DELETE_USER",  null, Map.of("userId", userId));
     }
 
 }

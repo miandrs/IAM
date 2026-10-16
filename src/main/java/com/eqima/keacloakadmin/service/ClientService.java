@@ -27,6 +27,7 @@ import com.eqima.keacloakadmin.entity.KeycloakClient;
 import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
 import com.eqima.keacloakadmin.repository.KeycloakClientRepository;
 import com.eqima.keacloakadmin.request.CreateClientRequest;
+import com.eqima.keacloakadmin.util.SecurityUtils;
 
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.ws.rs.core.Response;
@@ -49,6 +50,8 @@ public class ClientService {
 
     private final KeycloakClientRepository keycloakClientRepository;
 
+    private final AuditService auditService;
+
     @Autowired
     private EncryptionService encryptionService;
 
@@ -57,10 +60,11 @@ public class ClientService {
     @Value("${keycloak.realm}")
     private String realmName;
 
-    public ClientService(@Qualifier("keycloakClient") Keycloak keycloakClient, @Qualifier("keycloakAdmin") Keycloak keycloakAdmin, KeycloakClientRepository keycloakClientRepository){
+    public ClientService(@Qualifier("keycloakClient") Keycloak keycloakClient, @Qualifier("keycloakAdmin") Keycloak keycloakAdmin, KeycloakClientRepository keycloakClientRepository, AuditService auditService) {
         this.keycloakClient = keycloakClient;
         this.keycloakAdmin = keycloakAdmin;
         this.keycloakClientRepository = keycloakClientRepository;
+        this.auditService = auditService;
     }
 
 //Create the client in a specific realm in keycloak
@@ -87,6 +91,8 @@ public class ClientService {
         if (!(response.getStatusInfo().getFamily()==Response.Status.Family.SUCCESSFUL)) {
             throw new RuntimeException("Failed to create Keycloak client: " + response.getStatusInfo().getReasonPhrase());
         }
+
+        auditService.log("CREATE_CLIENT",  null, Map.of("clientId", clientRequest.clientId(), "realm", realm));
 
         String clientUuid = CreatedResponseUtil.getCreatedId(response);
 
@@ -137,6 +143,8 @@ public class ClientService {
             .get(svcUser.getId())
             .roles().clientLevel(realmMgmtClient.getId())
             .add(rolesToAssign);
+
+        auditService.log("ASSIGN_ROLES",  null, Map.of("clientId", clientId, "realm", realm, "rolesAssigned", rolesToAssign.stream().map(RoleRepresentation::getName).toList()));
         
         return clientUuid;
     }
@@ -170,6 +178,8 @@ public class ClientService {
             .get(svcUser.getId())
             .roles().clientLevel(realmMgmtClient.getId())
             .add(rolesToAssign);
+
+        auditService.log("ASSIGN_ROLES",  null, Map.of("clientId", clientId, "realm", realm, "rolesAssigned", rolesToAssign.stream().map(RoleRepresentation::getName).toList()));
         
         return clientUuid;
     }
@@ -194,6 +204,8 @@ public class ClientService {
         newClient.setClientId(clientId);
         newClient.setClientSecret(encryptedSecret);
         newClient.setIssuerUri(issuerUri);
+
+        auditService.log("SAVE_CLIENT",  null, Map.of("clientId", clientId, "realm", realm, "issuerUri", issuerUri));
 
         return keycloakClientRepository.save(newClient);
     }
@@ -274,6 +286,8 @@ public class ClientService {
         clientRepresentation.setEnabled(clientRequest.enabled());
 
         keycloakClient.realm(clientRequest.realmName()).clients().get(clientRepresentation.getId()).update(clientRepresentation);
+
+        auditService.log("UPDATE_CLIENT",  null, Map.of("clientId", clientId, "realm", clientRequest.realmName(), "name", clientRequest.name(), "enabled", clientRequest.enabled(), "redirectUris", List.of(clientRequest.uri()+"/*"), "webOrigins", List.of(clientRequest.uri())));
     }
 
     public void updateClientStatus(boolean status, String clientId) {
@@ -283,6 +297,8 @@ public class ClientService {
         clientRepresentation.setEnabled(status);
 
         keycloakClient.realm(realmName).clients().get(clientRepresentation.getId()).update(clientRepresentation);
+
+        auditService.log("UPDATE_CLIENT_STATUS",  null, Map.of("clientId", clientId, "realm", realmName, "enabled", status));
     }
 
     public void updateRedirectUris(List<String> redirectUris, String clientId) {
@@ -297,17 +313,23 @@ public class ClientService {
             client.setIssuerUri(redirectUris.get(0));
             keycloakClientRepository.save(client);
         });
+
+        auditService.log("UPDATE_REDIRECT_URIS",  null, Map.of("clientId", clientId, "realm", realmName, "redirectUris", redirectUris.stream().map(uri -> uri + "/*").collect(Collectors.toList()), "webOrigins", redirectUris));
     }
 
     public void deleteClient(String clientId) {
         ClientRepresentation clientRepresentation = keycloakClient.realm(realmName).clients().findByClientId(clientId).get(0);
         keycloakClient.realm(realmName).clients().get(clientRepresentation.getId()).remove();
+
+        auditService.log("DELETE_CLIENT",  null, Map.of("clientId", clientId, "realm", realmName));
     }
 
     public KeycloakClient rotateSecret(String clientId) throws Exception {
         ClientRepresentation clientRepresentation = keycloakClient.realm(realmName).clients().findByClientId(clientId).get(0);
         String newSecret = keycloakClient.realm(realmName).clients().get(clientRepresentation.getId()).generateNewSecret().getValue();
         String encryptedSecret = encryptionService.encrypt(newSecret);
+
+        auditService.log("ROTATE_CLIENT_SECRET",  null, Map.of("clientId", clientId, "realm", realmName));
 
         KeycloakClient existingClient = keycloakClientRepository.findByRealmName(realmName)
                 .stream()

@@ -28,6 +28,7 @@ import com.eqima.keacloakadmin.request.AssignClientRoleToGroup;
 import com.eqima.keacloakadmin.request.AssignClientRoleToUserRequest;
 import com.eqima.keacloakadmin.request.ClientRoleRequest;
 import com.eqima.keacloakadmin.request.CreateClientRoleRequest;
+import com.eqima.keacloakadmin.util.SecurityUtils;
 
 @Service
 public class RoleClientService {
@@ -44,12 +45,15 @@ public class RoleClientService {
     private final Keycloak keycloak;
     private final UserService userService;
 
+    private final AuditService auditService;
+
     @Value("${keycloak.realm}")
     private String realmName;
 
-    public RoleClientService(@Qualifier("keycloakClient") Keycloak keycloak, UserService userService) {
+    public RoleClientService(@Qualifier("keycloakClient") Keycloak keycloak, UserService userService, AuditService auditService) {
         this.keycloak = keycloak;
         this.userService = userService;
+        this.auditService = auditService;
     }
 
     public ClientResource getClientResource(String clientUuid) {
@@ -65,6 +69,9 @@ public class RoleClientService {
         RoleRepresentation role = new RoleRepresentation();
         role.setName(request.roleName());
         clientResource.roles().create(role);
+
+        auditService.log("CREATE_CLIENT_ROLE",  null, Map.of("clientId", request.clientId(), "roleName", request.roleName()));
+        
         return new RoleClientDto(
             clientResource.toRepresentation().getId(),
             clientResource.toRepresentation().getClientId(),
@@ -90,6 +97,8 @@ public class RoleClientService {
         RoleRepresentation created = keycloak.realm(realmName).clients()
             .get(client.getId()).roles().get(request.roleName()).toRepresentation();
 
+        auditService.log("CREATE_CLIENT_ROLE",  null, Map.of("clientId", request.clientId(), "roleName", request.roleName()));
+
         return new RoleClientDto(
             client.getId(), client.getClientId(),
             created.getId(), created.getName(), created.isComposite()
@@ -100,6 +109,8 @@ public class RoleClientService {
         ClientResource clientResource = keycloak.realm(realmName).clients().get(clientUuid);
         String roleName = clientResource.roles().get(roleUuid).toRepresentation().getName();
         clientResource.roles().deleteRole(roleUuid);
+
+        auditService.log("REMOVE_CLIENT_ROLE",  null, Map.of("clientUuid", clientUuid, "roleUuid", roleUuid, "roleName", roleName));
         return roleName;
     }
 
@@ -114,6 +125,8 @@ public class RoleClientService {
 
         keycloak.realm(realmName).clients()
             .get(clientUuid).roles().get(role.getName()).remove();
+
+        auditService.log("REMOVE_CLIENT_ROLE",  null, Map.of("clientUuid", clientUuid, "roleUuid", roleUuid, "roleName", role.getName()));
     }
 
 //Get all roles of a client
@@ -241,6 +254,7 @@ public class RoleClientService {
             userResource = getUserResource(request.userUuid());
             userResource.roles().clientLevel(clientResource.toRepresentation().getId()).add(List.of(role));
         }
+        auditService.log("ASSIGN_CLIENT_ROLE_TO_USER",  null, Map.of("userUuid", request.userUuid(), "clientRoles", request.clientRoles().toString()));
     }
 //Remove client role from user
     public void removeClientRoleFromUser(AssignClientRoleToUserRequest request) {
@@ -253,6 +267,7 @@ public class RoleClientService {
             userResource = getUserResource(request.userUuid());
             userResource.roles().clientLevel(clientResource.toRepresentation().getId()).remove(List.of(role));
         }
+        auditService.log("REMOVE_CLIENT_ROLE_FROM_USER",  null, Map.of("userUuid", request.userUuid(), "clientRoles", request.clientRoles().toString()));
     }
 
 //Assign client role to group
@@ -270,6 +285,7 @@ public class RoleClientService {
             RoleRepresentation role = clientResource.roles().get(clientRoleRequest.roleName()).toRepresentation();
             keycloak.realm(realmName).groups().group(group.get().getId()).roles().clientLevel(clientResource.toRepresentation().getId()).add(List.of(role));
         }
+        auditService.log("ASSIGN_CLIENT_ROLE_TO_GROUP",  null, Map.of("groupName", request.groupName(), "clientRoles", request.clientRoles().toString()));
     }
 //Remove client role from group
     public void removeClientRoleFromGroup(AssignClientRoleToGroup request) {
@@ -286,6 +302,7 @@ public class RoleClientService {
             RoleRepresentation role = clientResource.roles().get(clientRoleRequest.roleName()).toRepresentation();
             keycloak.realm(realmName).groups().group(group.get().getId()).roles().clientLevel(clientResource.toRepresentation().getId()).remove(List.of(role));
         }
+        auditService.log("REMOVE_CLIENT_ROLE_FROM_GROUP",  null, Map.of("groupName", request.groupName(), "clientRoles", request.clientRoles().toString()));
     }
 
 //Get all client roles for a user
@@ -357,6 +374,7 @@ public class RoleClientService {
 
         byClient.forEach((clientUuid, roles) ->
             user.roles().clientLevel(clientUuid).add(roles));
+        auditService.log("ASSIGN_CLIENT_ROLE_TO_USER",  null, Map.of("userUuid", req.userUuid(), "clientRoles", req.clientRoles().toString()));
     }
     public void removeAssignedClientRole(AssignClientRoleToUserRequest request) {
         if (request.clientRoles() == null || request.clientRoles().isEmpty()) return;
@@ -368,5 +386,6 @@ public class RoleClientService {
         } else {
             removeClientRoleFromUser(request);
         }
+        auditService.log("REMOVE_CLIENT_ROLE_FROM_USER",  null, Map.of("userUuid", request.userUuid(), "clientRoles", request.clientRoles().toString()));
     }
 }

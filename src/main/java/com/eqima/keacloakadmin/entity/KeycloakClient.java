@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.envers.Audited;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -19,7 +20,8 @@ import lombok.Setter;
 @Getter
 @Entity
 @Table(name = "keycloak_client")
-public class KeycloakClient {
+@Audited 
+public class KeycloakClient extends Auditable {
     
     @Id
     @UuidGenerator(style = UuidGenerator.Style.TIME)
@@ -30,9 +32,6 @@ public class KeycloakClient {
 
     private String clientId;
     private String clientSecret;
-
-    private Instant createdAt = Instant.now();
-    private Instant updatedAt = Instant.now();
 
     // @OneToOne(mappedBy = "keycloakClient", fetch = FetchType.LAZY)
     // private KeycloakUser clientAdminUser;

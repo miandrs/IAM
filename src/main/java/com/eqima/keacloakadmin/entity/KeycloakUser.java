@@ -2,6 +2,8 @@ package com.eqima.keacloakadmin.entity;
 
 import java.util.UUID;
 
+import org.hibernate.envers.Audited;
+
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -16,7 +18,8 @@ import lombok.Setter;
 @Getter
 @Entity
 @Table(name="keycloak_user")
-public class KeycloakUser {
+@Audited 
+public class KeycloakUser extends Auditable {
     @Id
     private UUID id;
     private String username;

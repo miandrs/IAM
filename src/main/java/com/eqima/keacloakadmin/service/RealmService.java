@@ -1,6 +1,7 @@
 package com.eqima.keacloakadmin.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.keycloak.OAuth2Constants;
@@ -22,6 +23,7 @@ import com.eqima.keacloakadmin.entity.KeycloakClient;
 import com.eqima.keacloakadmin.entity.KeycloakUser;
 import com.eqima.keacloakadmin.request.CreateClientRequest;
 import com.eqima.keacloakadmin.request.CreateRealmRequest;
+import com.eqima.keacloakadmin.util.SecurityUtils;
 @Service
 public class RealmService {
     private final Keycloak keycloak;
@@ -33,17 +35,21 @@ public class RealmService {
 
     private final UserService userService;
 
+    private final AuditService auditService;
+
     @Autowired
     private EncryptionService encryptionService;
 
     public RealmService(
         ClientService clientService, 
         UserService userService,  
-        @Qualifier("keycloakAdmin") Keycloak keycloakAdmin
+        @Qualifier("keycloakAdmin") Keycloak keycloakAdmin,
+        AuditService auditService
     ) {
         this.keycloak = keycloakAdmin;
         this.clientService = clientService;
         this.userService = userService;
+        this.auditService = auditService;
     }
 
     private RealmsResource realms() {
@@ -107,6 +113,8 @@ public class RealmService {
         // userMysql.setKeycloakClient(newRealmClient);
 
         userService.mysqlSaveKeycloakUser(userMysql);
+
+        auditService.log("CREATE_REALM",  null, Map.of("realmName", realmRequest.realm()));
 
         return realmRequest.realm();
     }

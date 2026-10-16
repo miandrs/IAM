@@ -2,6 +2,7 @@ package com.eqima.keacloakadmin.service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.keycloak.admin.client.Keycloak;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import com.eqima.keacloakadmin.dto.UserDTO;
 import com.eqima.keacloakadmin.request.CreateGroupRequest;
+import com.eqima.keacloakadmin.util.SecurityUtils;
 
 @Service
 public class GroupService {
@@ -22,14 +24,18 @@ public class GroupService {
     @Value("${keycloak.realm}")
     private String realm;
 
-    public GroupService(@Qualifier("keycloakClient") Keycloak keycloakClient){
+    private final AuditService auditService;
+
+    public GroupService(@Qualifier("keycloakClient") Keycloak keycloakClient, AuditService auditService) {
         this.keycloak = keycloakClient;
+        this.auditService = auditService;
     }
 
     public GroupRepresentation createGroup(CreateGroupRequest request) {
         GroupRepresentation group = new GroupRepresentation();
         group.setName(request.groupName().toUpperCase());
         keycloak.realm(realm).groups().add(group);
+        auditService.log("CREATE_GROUP",  null, Map.of("groupName", request.groupName().toUpperCase()));
         return findByName(request.groupName().toUpperCase()).orElseThrow(() -> new RuntimeException("Failed to create group"));
     }
 
@@ -48,6 +54,7 @@ public class GroupService {
             createGroup(new CreateGroupRequest(groupName));
             existingGroup = findByName(groupName);
         }
+        auditService.log("CREATE_GROUP_IF_NOT_EXIST",  null, Map.of("groupName", groupName.toUpperCase()));
         return existingGroup;
     }
 
@@ -61,6 +68,7 @@ public class GroupService {
 
     public void deleteGroup(String groupId) {
         keycloak.realm(realm).groups().group(groupId).remove();
+        auditService.log("DELETE_GROUP",  null, Map.of("groupId", groupId));
     }
 
     public void updateUserGroups(String userId, List<String> groupIds) {
@@ -74,10 +82,12 @@ public class GroupService {
         for (String groupId : groupIds) {
             keycloak.realm(realm).users().get(userId).joinGroup(groupId);
         }
+        auditService.log("UPDATE_USER_GROUPS",  null, Map.of("userId", userId, "groupIds", groupIds.toString()));
     }
 
     public void removeUserFromGroup(String userId, String groupId) {
         keycloak.realm(realm).users().get(userId).leaveGroup(groupId);
+        auditService.log("REMOVE_USER_FROM_GROUP",  null, Map.of("userId", userId, "groupId", groupId));
     }
 
     public List<UserDTO> getAllGroupsMembers(String groupId, int page, int size) {

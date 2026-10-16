@@ -7,7 +7,10 @@ import com.eqima.keacloakadmin.dto.ClientRepresentationDto;
 import com.eqima.keacloakadmin.dto.ClientRequest;
 import com.eqima.keacloakadmin.entity.KeycloakClient;
 import com.eqima.keacloakadmin.request.CreateClientRequest;
+import com.eqima.keacloakadmin.request.RedirectUriRequest;
 import com.eqima.keacloakadmin.service.ClientService;
+
+import jakarta.validation.Valid;
 
 import java.util.List;
 import java.util.Map;
@@ -22,8 +25,6 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestParam;
-
 
 
 @RestController
@@ -104,10 +105,11 @@ public class ClientController {
         return clientService.getDetails(clientId);
     }
 
+    // controller — same path, new body shape
     @PatchMapping("/{clientId}/redirect-uri")
-    public ClientDetailsDto updateRedirectUris(@PathVariable String clientId, @RequestBody Map<String, List<String>> uri) {
-        clientService.updateRedirectUris(uri.get("uri"), clientId);
-        return clientService.getDetails(clientId);
-    } 
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changeRedirectUri(@PathVariable String clientId, @Valid @RequestBody RedirectUriRequest req) {
+        clientService.updateRedirectUris(req.uris(), clientId);
+    }
     
 }
