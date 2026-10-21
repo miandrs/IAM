@@ -105,7 +105,12 @@ public class UserService {
             .toList(); */
     }
     public List<UserDTO> getGroupMembers() {
-        String groupName = getUserGroups().get(0);
+        List<String> userGroups = getUserGroups();
+        String groupName = userGroups.stream()
+            .findFirst()
+            .orElseThrow(() -> new IllegalStateException(
+                "L'utilisateur authentifié n'appartient à aucun groupe — impossible de lister les membres de son tenant."));
+
         GroupRepresentation group = groupService.findByName(groupName)
                 .orElseThrow(() -> new RuntimeException("Group not found: " + groupName));
         return keycloak.realm(realm)
@@ -286,11 +291,30 @@ public class UserService {
         users().get(userId).logout();
         auditService.log("REVOKE_USER_SESSION",  null, Map.of("userId", userId));
     }
+    
     public void sessionRevokeAll(){
-        users().list().forEach(user -> {
-            users().get(user.getId()).logout();
-        });
-        auditService.log("REVOKE_ALL_USER_SESSIONS",  null, Map.of());
+        List<String> roles = getUserRoles();
+        SecurityUtils securityUtils = new SecurityUtils();
+        if (roles.contains("SUPERADMIN")) {
+            users().list().forEach(user -> users().get(user.getId()).logout());
+            auditService.log("REVOKE_ALL_USER_SESSIONS", securityUtils.currentUserId(), Map.of("scope", "realm"));
+            return;
+        }
+
+        String groupName = getUserGroups().stream()
+            .findFirst()
+            .orElseThrow(() -> new IllegalStateException(
+                "L'utilisateur authentifié n'appartient à aucun groupe — impossible de scoper la révocation."));
+
+        GroupRepresentation group = groupService.findByName(groupName)
+                .orElseThrow(() -> new RuntimeException("Group not found: " + groupName));
+
+        List<UserRepresentation> members = keycloak.realm(realm).groups().group(group.getId()).members();
+        members.forEach(user -> users().get(user.getId()).logout());
+
+        auditService.log("REVOKE_ALL_USER_SESSIONS", securityUtils.currentUserId()
+        ,
+            Map.of("scope", "group", "groupName", groupName, "userCount", members.size()));
     }
 
     private void assignGroupsByName(String userId, List<String> groupNames) {

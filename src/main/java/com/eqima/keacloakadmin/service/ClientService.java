@@ -243,7 +243,6 @@ public class ClientService {
         RealmResource realmResource = keycloakAdmin.realm(realmName);
         ClientsResource clientsResource = realmResource.clients();
 
-        // fetch all clients
         return clientsResource.findAll().stream()
         .map(this::toDto)
         .collect(Collectors.toList());
