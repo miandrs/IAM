@@ -23,6 +23,7 @@ import com.eqima.keacloakadmin.models.dto.UserDTO;
 import com.eqima.keacloakadmin.models.entity.KeycloakUser;
 import com.eqima.keacloakadmin.models.entity.RequiredActions;
 import com.eqima.keacloakadmin.repository.KeycloakUserRepository;
+import com.eqima.keacloakadmin.models.request.CreateOrganizationRequest;
 import com.eqima.keacloakadmin.models.request.CreateUserRequest;
 import com.eqima.keacloakadmin.util.SecurityUtils;
 
@@ -42,11 +43,14 @@ public class UserService {
 
     private final AuditService auditService;
 
-    public UserService(@Qualifier("keycloakClient") Keycloak keycloakClient, KeycloakUserRepository keycloakUserRepository, GroupService groupService, AuditService auditService) {
+    private final OrganizationService organizationService;
+
+    public UserService(@Qualifier("keycloakClient") Keycloak keycloakClient, KeycloakUserRepository keycloakUserRepository, GroupService groupService, AuditService auditService, OrganizationService organizationService) {
         this.keycloak = keycloakClient;
         this.keycloakUserRepository = keycloakUserRepository;
         this.groupService = groupService;
         this.auditService = auditService;
+        this.organizationService = organizationService;
     }
 
     private UsersResource users(){
@@ -329,7 +333,9 @@ public class UserService {
                             .findFirst();
 
             if (groupOpt.isEmpty()) {
-                groupService.createIfNotExist(groupName);
+                // groupService.createIfNotExist(groupName);
+                CreateOrganizationRequest org = new CreateOrganizationRequest(groupNames.get(0));
+                organizationService.create(org);
                 groupOpt = groupsResource.groups().stream()
                             .filter(g -> g.getName().equalsIgnoreCase(groupName))
                             .findFirst();

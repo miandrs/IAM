@@ -4,6 +4,9 @@ import com.eqima.keacloakadmin.models.dto.OrganizationDto;
 import com.eqima.keacloakadmin.models.entity.Organization;
 import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
 import com.eqima.keacloakadmin.repository.OrganizationRepository;
+
+import jakarta.transaction.Transactional;
+
 import com.eqima.keacloakadmin.models.request.CreateGroupRequest;
 import com.eqima.keacloakadmin.models.request.CreateOrganizationRequest;
 import com.eqima.keacloakadmin.models.request.UpdateOrganizationRequest;
@@ -99,18 +102,27 @@ public class OrganizationService {
         return toDto(org, resolveGroupName(org.getKeycloakGroupId()));
     }
 
+    @Transactional
     public OrganizationDto update(UUID id, UpdateOrganizationRequest req) {
         Organization org = findOrgOrThrow(id);
+        boolean wasActive = org.isActive();
+
         if (req.active() != null) {
             org.setActive(req.active());
         }
         Organization saved = organizationRepository.save(org);
+
+        if (req.active() != null && req.active() != wasActive) {
+            groupService.setGroupMembersEnabled(saved.getKeycloakGroupId(), req.active());
+        }
 
         auditService.log("UPDATE_ORGANIZATION", null,
             Map.of("organizationId", id.toString(), "active", org.isActive()));
 
         return toDto(saved, resolveGroupName(org.getKeycloakGroupId()));
     }
+
+    
 
     // Ajout pur — ne touche à aucun autre groupe de l'utilisateur.
     // Volontairement PAS groupService.updateUserGroups(), qui remplace la liste complète.

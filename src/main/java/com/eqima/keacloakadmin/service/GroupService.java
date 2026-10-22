@@ -11,7 +11,9 @@ import java.util.stream.Collectors;
 
 import org.keycloak.admin.client.CreatedResponseUtil;
 import org.keycloak.admin.client.Keycloak;
+import org.keycloak.admin.client.resource.GroupResource;
 import org.keycloak.admin.client.resource.UserResource;
+import org.keycloak.admin.client.resource.UsersResource;
 import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -115,6 +117,34 @@ public class GroupService {
     public void deleteGroup(String groupId) {
         keycloak.realm(realm).groups().group(groupId).remove();
         auditService.log("DELETE_GROUP",  null, Map.of("groupId", groupId));
+    }
+
+    public void setGroupMembersEnabled(String groupId, boolean enabled) {
+        GroupResource group = keycloak.realm(realm).groups().group(groupId);
+        UsersResource users = keycloak.realm(realm).users();
+
+        int first = 0;
+        final int pageSize = 100;
+        List<UserRepresentation> page;
+
+        do {
+            page = group.members(first, pageSize);
+            for (UserRepresentation member : page) {
+                UserResource resource = users.get(member.getId());
+                UserRepresentation rep = resource.toRepresentation();
+                if (rep.isEnabled() != enabled) {
+                    rep.setEnabled(enabled);
+                    resource.update(rep);
+                }
+                if (!enabled) {
+                    resource.logout(); // kill active sessions immediately
+                }
+            }
+            first += pageSize;
+        } while (page.size() == pageSize);
+
+        auditService.log(enabled ? "ENABLE_GROUP_MEMBERS" : "DISABLE_GROUP_MEMBERS",
+                null, Map.of("groupId", groupId));
     }
 
     public void updateUserGroups(String userId, List<String> groupIds) {

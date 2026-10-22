@@ -1,8 +1,10 @@
 package com.eqima.keacloakadmin.controller;
 
 import com.eqima.keacloakadmin.models.dto.OrganizationDto;
+import com.eqima.keacloakadmin.models.dto.UserDTO;
 import com.eqima.keacloakadmin.models.request.CreateOrganizationRequest;
 import com.eqima.keacloakadmin.models.request.UpdateOrganizationRequest;
+import com.eqima.keacloakadmin.service.GroupService;
 import com.eqima.keacloakadmin.service.OrganizationService;
 
 import jakarta.validation.Valid;
@@ -19,9 +21,11 @@ import java.util.UUID;
 public class OrganizationController {
 
     private final OrganizationService organizationService;
+    private final GroupService groupService;
 
-    public OrganizationController(OrganizationService organizationService) {
+    public OrganizationController(OrganizationService organizationService, GroupService groupService) {
         this.organizationService = organizationService;
+        this.groupService = groupService;
     }
 
     @PostMapping
@@ -55,5 +59,10 @@ public class OrganizationController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
         organizationService.delete(id);
+    }
+
+    @GetMapping("/{id}/members")
+    public List<UserDTO> getMethodName(@RequestParam int page, @RequestParam int size, @PathVariable String id) {
+        return groupService.getAllGroupsMembers(id, page, size);
     }
 }
