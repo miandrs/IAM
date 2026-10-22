@@ -1,8 +1,8 @@
 package com.eqima.keacloakadmin.controller;
 
-import com.eqima.keacloakadmin.dto.AuditEventDto;
-import com.eqima.keacloakadmin.dto.PagedResult;
-import com.eqima.keacloakadmin.request.AuditEventRequest;
+import com.eqima.keacloakadmin.models.dto.AuditEventDto;
+import com.eqima.keacloakadmin.models.dto.PagedResult;
+import com.eqima.keacloakadmin.models.request.AuditEventRequest;
 import com.eqima.keacloakadmin.service.AuditService;
 
 import org.springframework.format.annotation.DateTimeFormat;

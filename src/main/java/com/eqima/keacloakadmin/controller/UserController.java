@@ -4,10 +4,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.eqima.keacloakadmin.dto.PasswordReset;
-import com.eqima.keacloakadmin.dto.RequiredActionRequest;
-import com.eqima.keacloakadmin.dto.UserDTO;
-import com.eqima.keacloakadmin.request.CreateUserRequest;
+import com.eqima.keacloakadmin.models.dto.PasswordReset;
+import com.eqima.keacloakadmin.models.dto.UserDTO;
+import com.eqima.keacloakadmin.models.request.CreateUserRequest;
+import com.eqima.keacloakadmin.models.request.RequiredActionRequest;
 import com.eqima.keacloakadmin.service.UserService;
 
 import jakarta.validation.Valid;

@@ -1,8 +1,8 @@
 package com.eqima.keacloakadmin.service;
 
-import com.eqima.keacloakadmin.dto.AuditEventDto;
-import com.eqima.keacloakadmin.dto.PagedResult;
-import com.eqima.keacloakadmin.entity.AuditEvent;
+import com.eqima.keacloakadmin.models.dto.AuditEventDto;
+import com.eqima.keacloakadmin.models.dto.PagedResult;
+import com.eqima.keacloakadmin.models.entity.AuditEvent;
 import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
 import com.eqima.keacloakadmin.repository.AuditEventRepository;
 import com.eqima.keacloakadmin.util.SecurityUtils;

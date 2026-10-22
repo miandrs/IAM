@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import com.eqima.keacloakadmin.entity.SodRule;
+import com.eqima.keacloakadmin.models.entity.SodRule;
 
 public interface SodRuleRepository extends JpaRepository<SodRule, UUID>{
     // les deux sens — une règle peut être posée dans n'importe quel ordre

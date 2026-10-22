@@ -2,12 +2,12 @@ package com.eqima.keacloakadmin.controller;
 
 import org.springframework.web.bind.annotation.RestController;
 
-import com.eqima.keacloakadmin.dto.ClientDetailsDto;
-import com.eqima.keacloakadmin.dto.ClientRepresentationDto;
-import com.eqima.keacloakadmin.dto.ClientRequest;
-import com.eqima.keacloakadmin.entity.KeycloakClient;
-import com.eqima.keacloakadmin.request.CreateClientRequest;
-import com.eqima.keacloakadmin.request.RedirectUriRequest;
+import com.eqima.keacloakadmin.models.dto.ClientDetailsDto;
+import com.eqima.keacloakadmin.models.dto.ClientRepresentationDto;
+import com.eqima.keacloakadmin.models.dto.ClientRequest;
+import com.eqima.keacloakadmin.models.entity.KeycloakClient;
+import com.eqima.keacloakadmin.models.request.CreateClientRequest;
+import com.eqima.keacloakadmin.models.request.RedirectUriRequest;
 import com.eqima.keacloakadmin.service.ClientService;
 
 import jakarta.validation.Valid;

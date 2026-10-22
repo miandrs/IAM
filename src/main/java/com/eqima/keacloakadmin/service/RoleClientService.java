@@ -20,14 +20,14 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import com.eqima.keacloakadmin.dto.PagedResult;
-import com.eqima.keacloakadmin.dto.RoleClientDto;
-import com.eqima.keacloakadmin.dto.UserDTO;
+import com.eqima.keacloakadmin.models.dto.PagedResult;
+import com.eqima.keacloakadmin.models.dto.RoleClientDto;
+import com.eqima.keacloakadmin.models.dto.UserDTO;
 import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
-import com.eqima.keacloakadmin.request.AssignClientRoleToGroup;
-import com.eqima.keacloakadmin.request.AssignClientRoleToUserRequest;
-import com.eqima.keacloakadmin.request.ClientRoleRequest;
-import com.eqima.keacloakadmin.request.CreateClientRoleRequest;
+import com.eqima.keacloakadmin.models.request.AssignClientRoleToGroup;
+import com.eqima.keacloakadmin.models.request.AssignClientRoleToUserRequest;
+import com.eqima.keacloakadmin.models.request.ClientRoleRequest;
+import com.eqima.keacloakadmin.models.request.CreateClientRoleRequest;
 import com.eqima.keacloakadmin.util.SecurityUtils;
 
 @Service

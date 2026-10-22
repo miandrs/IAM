@@ -7,10 +7,10 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 
-import com.eqima.keacloakadmin.dto.PagedResult;
-import com.eqima.keacloakadmin.dto.RoleClientDto;
-import com.eqima.keacloakadmin.request.AssignClientRoleToUserRequest;
-import com.eqima.keacloakadmin.request.CreateClientRoleRequest;
+import com.eqima.keacloakadmin.models.dto.PagedResult;
+import com.eqima.keacloakadmin.models.dto.RoleClientDto;
+import com.eqima.keacloakadmin.models.request.AssignClientRoleToUserRequest;
+import com.eqima.keacloakadmin.models.request.CreateClientRoleRequest;
 import com.eqima.keacloakadmin.service.RoleClientService;
 
 import org.springframework.web.bind.annotation.DeleteMapping;

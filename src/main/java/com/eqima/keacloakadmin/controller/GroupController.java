@@ -2,8 +2,8 @@ package com.eqima.keacloakadmin.controller;
 
 import org.springframework.web.bind.annotation.RestController;
 
-import com.eqima.keacloakadmin.dto.UserDTO;
-import com.eqima.keacloakadmin.request.CreateGroupRequest;
+import com.eqima.keacloakadmin.models.dto.UserDTO;
+import com.eqima.keacloakadmin.models.request.CreateGroupRequest;
 import com.eqima.keacloakadmin.service.GroupService;
 
 import java.util.List;
@@ -57,8 +57,8 @@ public class GroupController {
     }
     
     @PutMapping("/{id}/members/{userId}")
-    public String putMethodName(@PathVariable String id, @PathVariable String userId) {
-        groupService.updateUserGroups(userId, List.of(id));
+    public String addMember(@PathVariable String id, @PathVariable String userId) {
+        groupService.addUserToGroup(userId, id); // nouveau, ajout pur
         return "User added to group successfully";
     }
 

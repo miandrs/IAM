@@ -17,12 +17,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import com.eqima.keacloakadmin.dto.RealmRepresentationDto;
-import com.eqima.keacloakadmin.dto.RealmRequest;
-import com.eqima.keacloakadmin.entity.KeycloakClient;
-import com.eqima.keacloakadmin.entity.KeycloakUser;
-import com.eqima.keacloakadmin.request.CreateClientRequest;
-import com.eqima.keacloakadmin.request.CreateRealmRequest;
+import com.eqima.keacloakadmin.models.dto.RealmRepresentationDto;
+import com.eqima.keacloakadmin.models.entity.KeycloakClient;
+import com.eqima.keacloakadmin.models.entity.KeycloakUser;
+import com.eqima.keacloakadmin.models.request.CreateClientRequest;
+import com.eqima.keacloakadmin.models.request.CreateRealmRequest;
+import com.eqima.keacloakadmin.models.request.RealmRequest;
 import com.eqima.keacloakadmin.util.SecurityUtils;
 @Service
 public class RealmService {

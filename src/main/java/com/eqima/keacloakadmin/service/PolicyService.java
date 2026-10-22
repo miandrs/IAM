@@ -1,15 +1,15 @@
 package com.eqima.keacloakadmin.service;
 
-import com.eqima.keacloakadmin.dto.CreateSodRuleRequest;
-import com.eqima.keacloakadmin.dto.MfaRecomputeResult;
-import com.eqima.keacloakadmin.dto.SodCheckResult;
-import com.eqima.keacloakadmin.entity.BusinessProfile;
-import com.eqima.keacloakadmin.entity.SodRule;
-import com.eqima.keacloakadmin.entity.UserProfileAssignment;
+import com.eqima.keacloakadmin.models.dto.MfaRecomputeResult;
+import com.eqima.keacloakadmin.models.dto.SodCheckResult;
+import com.eqima.keacloakadmin.models.entity.BusinessProfile;
+import com.eqima.keacloakadmin.models.entity.SodRule;
+import com.eqima.keacloakadmin.models.entity.UserProfileAssignment;
 import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
 import com.eqima.keacloakadmin.repository.BusinessProfileRepository;
 import com.eqima.keacloakadmin.repository.SodRuleRepository;
 import com.eqima.keacloakadmin.repository.UserProfileAssignmentRepository;
+import com.eqima.keacloakadmin.models.request.CreateSodRuleRequest;
 
 import jakarta.ws.rs.NotFoundException;
 import org.keycloak.admin.client.Keycloak;

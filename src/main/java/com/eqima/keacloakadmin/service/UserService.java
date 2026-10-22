@@ -19,11 +19,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
-import com.eqima.keacloakadmin.dto.UserDTO;
-import com.eqima.keacloakadmin.entity.KeycloakUser;
-import com.eqima.keacloakadmin.entity.RequiredActions;
+import com.eqima.keacloakadmin.models.dto.UserDTO;
+import com.eqima.keacloakadmin.models.entity.KeycloakUser;
+import com.eqima.keacloakadmin.models.entity.RequiredActions;
 import com.eqima.keacloakadmin.repository.KeycloakUserRepository;
-import com.eqima.keacloakadmin.request.CreateUserRequest;
+import com.eqima.keacloakadmin.models.request.CreateUserRequest;
 import com.eqima.keacloakadmin.util.SecurityUtils;
 
 import jakarta.ws.rs.core.Response;

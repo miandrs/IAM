@@ -3,8 +3,8 @@ package com.eqima.keacloakadmin.controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.eqima.keacloakadmin.dto.RealmRepresentationDto;
-import com.eqima.keacloakadmin.request.CreateRealmRequest;
+import com.eqima.keacloakadmin.models.dto.RealmRepresentationDto;
+import com.eqima.keacloakadmin.models.request.CreateRealmRequest;
 import com.eqima.keacloakadmin.service.RealmService;
 
 import org.springframework.web.bind.annotation.PostMapping;

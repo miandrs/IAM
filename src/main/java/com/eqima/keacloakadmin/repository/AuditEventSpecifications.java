@@ -1,6 +1,6 @@
 package com.eqima.keacloakadmin.repository;
 
-import com.eqima.keacloakadmin.entity.AuditEvent;
+import com.eqima.keacloakadmin.models.entity.AuditEvent;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.time.Instant;

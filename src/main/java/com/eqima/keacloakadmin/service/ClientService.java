@@ -20,13 +20,13 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
-import com.eqima.keacloakadmin.dto.ClientDetailsDto;
-import com.eqima.keacloakadmin.dto.ClientRepresentationDto;
-import com.eqima.keacloakadmin.dto.ClientRequest;
-import com.eqima.keacloakadmin.entity.KeycloakClient;
+import com.eqima.keacloakadmin.models.dto.ClientDetailsDto;
+import com.eqima.keacloakadmin.models.dto.ClientRepresentationDto;
+import com.eqima.keacloakadmin.models.dto.ClientRequest;
+import com.eqima.keacloakadmin.models.entity.KeycloakClient;
 import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
 import com.eqima.keacloakadmin.repository.KeycloakClientRepository;
-import com.eqima.keacloakadmin.request.CreateClientRequest;
+import com.eqima.keacloakadmin.models.request.CreateClientRequest;
 import com.eqima.keacloakadmin.util.SecurityUtils;
 
 import jakarta.persistence.EntityNotFoundException;

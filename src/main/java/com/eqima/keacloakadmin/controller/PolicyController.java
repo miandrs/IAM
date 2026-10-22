@@ -1,10 +1,10 @@
 package com.eqima.keacloakadmin.controller;
 
-import com.eqima.keacloakadmin.dto.MfaRecomputeResult;
-import com.eqima.keacloakadmin.dto.SodCheckResult;
-import com.eqima.keacloakadmin.entity.SodRule;
-import com.eqima.keacloakadmin.dto.CreateSodRuleRequest;
-import com.eqima.keacloakadmin.dto.SodCheckRequest;
+import com.eqima.keacloakadmin.models.dto.MfaRecomputeResult;
+import com.eqima.keacloakadmin.models.dto.SodCheckResult;
+import com.eqima.keacloakadmin.models.entity.SodRule;
+import com.eqima.keacloakadmin.models.request.CreateSodRuleRequest;
+import com.eqima.keacloakadmin.models.request.SodCheckRequest;
 import com.eqima.keacloakadmin.service.PolicyService;
 
 import jakarta.validation.Valid;
