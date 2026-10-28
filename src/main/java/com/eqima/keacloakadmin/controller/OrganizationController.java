@@ -49,7 +49,7 @@ public class OrganizationController {
         return organizationService.update(id, request);
     }
 
-    @PostMapping("/{id}/users/{userId}")
+    @PutMapping("/{id}/members/{userId}")
     public void attachUser(@PathVariable UUID id, @PathVariable String userId) {
         organizationService.attachUser(id, userId);
     }
