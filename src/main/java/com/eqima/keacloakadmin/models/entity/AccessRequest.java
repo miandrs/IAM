@@ -5,6 +5,8 @@ import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -28,7 +30,9 @@ public class AccessRequest {
     @Column(nullable = false) private UUID profileId;
     private String justification;
 
-    @Column(nullable = false) private String status; // PENDING | PROVISIONED | REJECTED
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    private AccessRequestStatus status; // PENDING | PROVISIONED | REJECTED
     @Column(nullable = false, updatable = false) private Instant createdAt;
     private Instant decidedAt;
 }
