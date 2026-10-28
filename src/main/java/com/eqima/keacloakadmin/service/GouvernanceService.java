@@ -121,8 +121,7 @@ public class GouvernanceService {
             gates.stream().filter(g -> g.getDecision().equals("PENDING"))
                 .forEach(g -> decide(g, "APPROVED", securityUtils.currentUserId(), comment));
         } else if (securityUtils.isAdmin()) {
-            Set<UUID> myOrgs = organizationRepository.findByKeycloakGroupIdIn(
-                securityUtils.organizations()).stream().map(Organization::getId).collect(Collectors.toSet());
+            Set<UUID> myOrgs = currentApproverOrgIds();
 
             List<AccessRequestGate> mine = gates.stream()
                 .filter(g -> g.getDecision().equals("PENDING") && myOrgs.contains(g.getOrganizationId()))
@@ -177,15 +176,19 @@ public class GouvernanceService {
         if (securityUtils.isSuperAdmin()) {
             return candidates.stream().map(this::toDto).toList();
         }
+
         if (securityUtils.isAdmin()) {
-            Set<UUID> myOrgIds = organizationRepository.findByKeycloakGroupIdIn(
-                securityUtils.organizations()).stream().map(Organization::getId).collect(Collectors.toSet());
+            
+            Set<UUID> myOrgIds = currentApproverOrgIds();
+
+            if (myOrgIds.isEmpty()) return List.of();
 
             return candidates.stream()
                 .filter(req -> !Collections.disjoint(myOrgIds, resolveRequesterOrgs(req.getUserUuid())))
                 .map(this::toDto)
                 .toList();
         }
+
         throw new AccessDeniedException("Not allowed to list access requests");
     }
 
@@ -197,8 +200,7 @@ public class GouvernanceService {
         if (securityUtils.isSuperAdmin()) {
             myPendingGates = gates.stream().filter(g -> g.getDecision().equals("PENDING")).toList();
         } else if (securityUtils.isAdmin()) {
-            Set<UUID> myOrgs = organizationRepository.findByKeycloakGroupIdIn(
-                securityUtils.organizations()).stream().map(Organization::getId).collect(Collectors.toSet());
+            Set<UUID> myOrgs = currentApproverOrgIds();
             myPendingGates = gates.stream()
                 .filter(g -> g.getDecision().equals("PENDING") && myOrgs.contains(g.getOrganizationId()))
                 .toList();
@@ -223,6 +225,21 @@ public class GouvernanceService {
 
     public AccessRequestDto getById(UUID requestId) {
         return toDto(findRequestOrThrow(requestId));
+    }
+
+    // IDs Organization de l'appelant courant (ADMIN) : noms du token -> groupes Keycloak -> Organization
+    private Set<UUID> currentApproverOrgIds() {
+        List<String> myGroupIds = groupService.getAllGroups().stream()
+            .map(GroupRepresentation::getId)
+            .toList();
+
+        if (myGroupIds.isEmpty()) {
+            return Set.of();
+        }
+
+        return organizationRepository.findByKeycloakGroupIdIn(myGroupIds).stream()
+            .map(Organization::getId)
+            .collect(Collectors.toSet());
     }
 
     // ═══════════════ Business Profiles ═══════════════
@@ -348,13 +365,29 @@ public class GouvernanceService {
         return new AccessRequestDto(
             request.getId(),
             request.getUserUuid(),
+            resolveUsernameSafe(request.getUserUuid()),
             request.getProfileId(),
+            resolveProfileNameSafe(request.getProfileId()),
             request.getJustification(),
             String.valueOf(request.getStatus()),
             request.getCreatedAt(),
             request.getDecidedAt(),
             gateDtos
         );
+    }
+
+    private String resolveUsernameSafe(String userUuid) {
+        try {
+            return keycloak.realm(realmName).users().get(userUuid).toRepresentation().getUsername();
+        } catch (Exception e) {
+            return "(utilisateur introuvable)";
+        }
+    }
+
+    private String resolveProfileNameSafe(UUID profileId) {
+        return businessProfileRepository.findById(profileId)
+            .map(BusinessProfile::getName)
+            .orElse("(profil introuvable)");
     }
 
     private AccessRequestGateDto toGateDto(AccessRequestGate gate) {

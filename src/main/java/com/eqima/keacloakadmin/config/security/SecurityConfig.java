@@ -32,7 +32,9 @@ public class SecurityConfig {
         .csrf(csrf -> csrf.disable())
         .authorizeHttpRequests(authorize -> authorize
             .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
-            .requestMatchers("/keycloak/**").authenticated()
+            .requestMatchers(org.springframework.http.HttpMethod.POST, "/governance/access-requests").authenticated()
+            .requestMatchers(org.springframework.http.HttpMethod.GET, "/governance/profiles/**").authenticated()
+            .requestMatchers("/keycloak/**", "/governance/**", "/audit/**").hasAnyRole("ADMIN", "SUPERADMIN")
             .requestMatchers("/api/**").authenticated()
             .anyRequest().permitAll()
         )

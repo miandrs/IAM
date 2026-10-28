@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 public record AccessRequestDto(
-    UUID id, String userUuid, UUID profileId, String justification,
-    String status, Instant createdAt, Instant decidedAt,
+    UUID id, String userUuid, String username, UUID profileId, String profileName,
+    String justification, String status, Instant createdAt, Instant decidedAt,
     List<AccessRequestGateDto> gates
 ) {}
