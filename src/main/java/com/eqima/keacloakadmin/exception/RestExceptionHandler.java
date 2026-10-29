@@ -7,9 +7,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.ws.rs.WebApplicationException;
-
 @RestControllerAdvice
 public class RestExceptionHandler extends ResponseEntityExceptionHandler{
 
@@ -47,5 +44,11 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler{
             request.getDescription(true)
         );
         return ResponseEntity.status(errorResponse.getStatus()).body(errorResponse);
+    }
+
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex, WebRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(new ErrorResponse(HttpStatus.CONFLICT.value(), ex.getMessage(), "Données dupliqué", request.getDescription(true)));
     }
 }
