@@ -341,7 +341,12 @@ public class GouvernanceService {
 
         BusinessProfile profile = businessProfileRepository.findById(request.getProfileId()).orElseThrow();
         if (profile.isMfaRequired()) {
-            policyService.recomputeMfa(request.getUserUuid()); // acteur système — pas d'admin humain à l'origine de ce recalcul précis
+            try {
+                policyService.recomputeMfa(request.getUserUuid());
+            } catch (Exception e) {
+                auditService.log("RECOMPUTE_MFA_FAILED", request.getUserUuid(),
+                    Map.of("accessRequestId", request.getId().toString(), "error", String.valueOf(e.getMessage())));
+            }
         }
 
         auditService.log("ASSIGN_PROFILE", String.valueOf(profile.getId()),
