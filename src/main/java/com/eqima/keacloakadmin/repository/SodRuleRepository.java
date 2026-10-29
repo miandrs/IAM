@@ -13,4 +13,10 @@ public interface SodRuleRepository extends JpaRepository<SodRule, UUID>{
     // les deux sens — une règle peut être posée dans n'importe quel ordre
     @Query("select r from SodRule r where r.profileId = :profileId or r.incompatibleProfileId = :profileId")
     List<SodRule> findAllInvolvingProfile(@Param("profileId") UUID profileId);
+    @Query("""
+        select (count(r) > 0) from SodRule r
+        where (r.profileId = :a and r.incompatibleProfileId = :b)
+        or (r.profileId = :b and r.incompatibleProfileId = :a)
+    """)
+    boolean existsBetween(@Param("a") UUID a, @Param("b") UUID b);
 }
