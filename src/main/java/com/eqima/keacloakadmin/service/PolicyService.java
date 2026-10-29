@@ -1,15 +1,17 @@
 package com.eqima.keacloakadmin.service;
 
+import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
 import com.eqima.keacloakadmin.models.dto.MfaRecomputeResult;
 import com.eqima.keacloakadmin.models.dto.SodCheckResult;
+import com.eqima.keacloakadmin.models.dto.SodRuleDto;
 import com.eqima.keacloakadmin.models.entity.BusinessProfile;
 import com.eqima.keacloakadmin.models.entity.SodRule;
 import com.eqima.keacloakadmin.models.entity.UserProfileAssignment;
-import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
+import com.eqima.keacloakadmin.models.request.CreateSodRuleRequest;
 import com.eqima.keacloakadmin.repository.BusinessProfileRepository;
 import com.eqima.keacloakadmin.repository.SodRuleRepository;
 import com.eqima.keacloakadmin.repository.UserProfileAssignmentRepository;
-import com.eqima.keacloakadmin.models.request.CreateSodRuleRequest;
+import com.eqima.keacloakadmin.util.SecurityUtils;
 
 import jakarta.ws.rs.NotFoundException;
 import org.keycloak.admin.client.Keycloak;
@@ -17,6 +19,7 @@ import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -26,12 +29,14 @@ import java.util.stream.Collectors;
 public class PolicyService {
 
     private static final String MFA_REQUIRED_ACTION = "CONFIGURE_TOTP";
+    private static final String OTP_CREDENTIAL_TYPE = "otp";
 
     private final UserProfileAssignmentRepository assignmentRepository;
     private final SodRuleRepository sodRuleRepository;
     private final BusinessProfileRepository profileRepository;
     private final Keycloak keycloakClient;
     private final AuditService auditService;
+    private final SecurityUtils securityUtils; // CORRECTION
 
     @Value("${keycloak.realm}")
     private String realmName;
@@ -41,13 +46,15 @@ public class PolicyService {
         SodRuleRepository sodRuleRepository,
         BusinessProfileRepository profileRepository,
         @Qualifier("keycloakClient") Keycloak keycloakClient,
-        AuditService auditService
+        AuditService auditService,
+        SecurityUtils securityUtils
     ) {
         this.assignmentRepository = assignmentRepository;
         this.sodRuleRepository = sodRuleRepository;
         this.profileRepository = profileRepository;
         this.keycloakClient = keycloakClient;
         this.auditService = auditService;
+        this.securityUtils = securityUtils;
     }
 
     // ═══════════════ SoD — vérification ═══════════════
@@ -57,6 +64,11 @@ public class PolicyService {
             .stream()
             .map(UserProfileAssignment::getProfileId)
             .collect(Collectors.toSet());
+
+        // CORRECTION : refuse le doublon d'un profil déjà actif
+        if (activeProfileIds.contains(requestedProfileId)) {
+            return new SodCheckResult("REJECTED", "Profil déjà actif pour cet utilisateur.");
+        }
 
         if (activeProfileIds.isEmpty()) {
             return new SodCheckResult("APPROVED", null);
@@ -89,13 +101,28 @@ public class PolicyService {
 
     // ═══════════════ SoD — gestion des règles ═══════════════
 
-    public List<SodRule> listRules(UUID profileId) {
-        return profileId != null
+    // CORRECTION : renvoie un DTO au lieu de l'entité
+    public List<SodRuleDto> listRules(UUID profileId) {
+        List<SodRule> rules = profileId != null
             ? sodRuleRepository.findAllInvolvingProfile(profileId)
             : sodRuleRepository.findAll();
+
+        // One query for all the profiles involved, instead of 2 queries per rule
+        Set<UUID> ids = new HashSet<>();
+        for (SodRule r : rules) {
+            ids.add(r.getProfileId());
+            ids.add(r.getIncompatibleProfileId());
+        }
+        Map<UUID, String> names = profileRepository.findAllById(ids).stream()
+            .collect(Collectors.toMap(BusinessProfile::getId, BusinessProfile::getName));
+
+        return rules.stream().map(r -> toRuleDto(r, names)).toList();
     }
 
-    public SodRule createRule(CreateSodRuleRequest req) {
+
+    public SodRuleDto createRule(CreateSodRuleRequest req) {
+        requireSuperAdmin(); // CORRECTION : les règles SoD sont globales
+
         if (req.profileId().equals(req.incompatibleProfileId())) {
             throw new IllegalArgumentException("Un profil ne peut pas être incompatible avec lui-même.");
         }
@@ -103,6 +130,11 @@ public class PolicyService {
             .orElseThrow(() -> new ResourceNotFoundException("Profil inexistant : " + req.profileId()));
         BusinessProfile incompatible = profileRepository.findById(req.incompatibleProfileId())
             .orElseThrow(() -> new ResourceNotFoundException("Profil inexistant : " + req.incompatibleProfileId()));
+
+        // CORRECTION : (A,B) et (B,A) sont équivalentes
+        if (sodRuleRepository.existsBetween(profile.getId(), incompatible.getId())) {
+            throw new IllegalStateException("Une règle SoD existe déjà entre ces deux profils.");
+        }
 
         SodRule rule = new SodRule();
         rule.setProfileId(profile.getId());
@@ -113,10 +145,17 @@ public class PolicyService {
         auditService.log("CREATE_SOD_RULE", null,
             Map.of("profileId", profile.getId().toString(), "incompatibleProfileId", incompatible.getId().toString()));
 
-        return saved;
+        return new SodRuleDto(
+            saved.getId(),
+            profile.getId(), profile.getName(),
+            incompatible.getId(), incompatible.getName(),
+            saved.getReason()
+        );
     }
 
     public void deleteRule(UUID id) {
+        requireSuperAdmin(); // CORRECTION
+
         SodRule rule = sodRuleRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Règle SoD inexistante : " + id));
         sodRuleRepository.deleteById(id);
@@ -125,8 +164,27 @@ public class PolicyService {
             Map.of("profileId", rule.getProfileId().toString(), "incompatibleProfileId", rule.getIncompatibleProfileId().toString()));
     }
 
+    private void requireSuperAdmin() {
+        if (!securityUtils.isSuperAdmin()) {
+            throw new AccessDeniedException("Réservé au SUPERADMIN");
+        }
+    }
+
+    private SodRuleDto toRuleDto(SodRule r, Map<UUID, String> names) {
+        return new SodRuleDto(
+            r.getId(),
+            r.getProfileId(),
+            names.getOrDefault(r.getProfileId(), r.getProfileId().toString()),
+            r.getIncompatibleProfileId(),
+            names.getOrDefault(r.getIncompatibleProfileId(), r.getIncompatibleProfileId().toString()),
+            r.getReason()
+        );
+    }
+
     // ═══════════════ MFA — recalcul ═══════════════
 
+    // Pas de contrôle de rôle ici : appelée en interne par GouvernanceService.provisionProfile
+    // (donc par un ADMIN). Protégez l'éventuel endpoint HTTP au niveau du contrôleur.
     public MfaRecomputeResult recomputeMfa(String userUuid) {
         List<UUID> activeProfileIds = assignmentRepository.findByUserUuidAndActiveTrue(userUuid)
             .stream()
@@ -158,13 +216,18 @@ public class PolicyService {
         );
         boolean currentlyHasAction = actions.contains(MFA_REQUIRED_ACTION);
 
-        // n'écrit dans Keycloak que si l'état doit réellement changer
         if (mfaRequired && !currentlyHasAction) {
+            // CORRECTION : ne redemande pas un OTP déjà configuré
+            boolean hasOtp = userResource.credentials().stream()
+                .anyMatch(c -> OTP_CREDENTIAL_TYPE.equals(c.getType()));
+            if (hasOtp) {
+                return;
+            }
             actions.add(MFA_REQUIRED_ACTION);
         } else if (!mfaRequired && currentlyHasAction) {
             actions.remove(MFA_REQUIRED_ACTION);
         } else {
-            return; // déjà dans le bon état, rien à faire
+            return; // déjà dans le bon état
         }
 
         user.setRequiredActions(actions);

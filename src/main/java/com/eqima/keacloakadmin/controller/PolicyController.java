@@ -2,6 +2,7 @@ package com.eqima.keacloakadmin.controller;
 
 import com.eqima.keacloakadmin.models.dto.MfaRecomputeResult;
 import com.eqima.keacloakadmin.models.dto.SodCheckResult;
+import com.eqima.keacloakadmin.models.dto.SodRuleDto;
 import com.eqima.keacloakadmin.models.entity.SodRule;
 import com.eqima.keacloakadmin.models.request.CreateSodRuleRequest;
 import com.eqima.keacloakadmin.models.request.SodCheckRequest;
@@ -32,13 +33,13 @@ public class PolicyController {
     }
 
     @GetMapping("/sod-rules")
-    public List<SodRule> listRules(@RequestParam(required = false) UUID profileId) {
+    public List<SodRuleDto> listRules(@RequestParam(required = false) UUID profileId) {
         return policyService.listRules(profileId);
     }
 
     @PostMapping("/sod-rules")
     @ResponseStatus(HttpStatus.CREATED)
-    public SodRule createRule(@Valid @RequestBody CreateSodRuleRequest request) {
+    public SodRuleDto createRule(@Valid @RequestBody CreateSodRuleRequest request) {
         return policyService.createRule(request);
     }
 
