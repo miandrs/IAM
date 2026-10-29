@@ -376,16 +376,39 @@ public class RoleClientService {
             user.roles().clientLevel(clientUuid).add(roles));
         auditService.log("ASSIGN_CLIENT_ROLE_TO_USER",  null, Map.of("userUuid", req.userUuid(), "clientRoles", req.clientRoles().toString()));
     }
+    // public void removeAssignedClientRole(AssignClientRoleToUserRequest request) {
+    //     if (request.clientRoles() == null || request.clientRoles().isEmpty()) return;
+    //     List<String> roles = userService.getUserRoles();
+    //     if (roles.contains("SUPERADMIN")) {
+    //         UserDTO user=userService.getUserById(request.userUuid());
+    //         removeClientRoleFromGroup(new AssignClientRoleToGroup(user.groups().get(0), request.clientRoles()));
+    //         return;
+    //     } else {
+    //         removeClientRoleFromUser(request);
+    //     }
+    //     auditService.log("REMOVE_CLIENT_ROLE_FROM_USER",  null, Map.of("userUuid", request.userUuid(), "clientRoles", request.clientRoles().toString()));
+    // }
     public void removeAssignedClientRole(AssignClientRoleToUserRequest request) {
         if (request.clientRoles() == null || request.clientRoles().isEmpty()) return;
-        List<String> roles = userService.getUserRoles();
-        if (roles.contains("SUPERADMIN")) {
-            UserDTO user=userService.getUserById(request.userUuid());
-            removeClientRoleFromGroup(new AssignClientRoleToGroup(user.groups().get(0), request.clientRoles()));
-            return;
-        } else {
-            removeClientRoleFromUser(request);
+
+        RealmResource realm = keycloak.realm(realmName);
+        UserResource user = realm.users().get(request.userUuid());
+
+        Map<String, List<RoleRepresentation>> byClient = new HashMap<>();
+        for (ClientRoleRequest r : request.clientRoles()) {
+            RoleRepresentation role = realm.clients().get(r.clientUuid())
+                .roles().list().stream()
+                .filter(x -> x.getName().equals(r.roleName()))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException(
+                    "Rôle '" + r.roleName() + "' introuvable sur le client " + r.clientUuid()));
+            byClient.computeIfAbsent(r.clientUuid(), k -> new ArrayList<>()).add(role);
         }
-        auditService.log("REMOVE_CLIENT_ROLE_FROM_USER",  null, Map.of("userUuid", request.userUuid(), "clientRoles", request.clientRoles().toString()));
+
+        byClient.forEach((clientUuid, roles) ->
+            user.roles().clientLevel(clientUuid).remove(roles));
+
+        auditService.log("REMOVE_CLIENT_ROLE_FROM_USER", null,
+            Map.of("userUuid", request.userUuid(), "clientRoles", request.clientRoles().toString()));
     }
 }
