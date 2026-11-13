@@ -101,11 +101,13 @@ public class RealmService {
             .build();
 
 // 7) Create a user in the new realm
-        userService.createUser(
+        String newUserId = userService.createUser(
             realmRequest.userRequest(), userKeycloak, realmRequest.realm()
         );
 // 7.1) Save the manager user in MySQL database joined to the new client
         KeycloakUser userMysql = new KeycloakUser();
+        // @Id sans générateur : sans cet id, save() échouait et le Map.of du log levait un NPE
+        userMysql.setId(java.util.UUID.fromString(newUserId));
         userMysql.setUsername(realmRequest.userRequest().username());
         userMysql.setFirstname(realmRequest.userRequest().firstname());
         userMysql.setLastname(realmRequest.userRequest().lastname());
