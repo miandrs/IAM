@@ -86,15 +86,15 @@ public class ClientService {
             client.setServiceAccountsEnabled(true);
         }
 
-        Response response = keycloakClient.realm(realm).clients().create(client);
-
-        if (!(response.getStatusInfo().getFamily()==Response.Status.Family.SUCCESSFUL)) {
-            throw new RuntimeException("Failed to create Keycloak client: " + response.getStatusInfo().getReasonPhrase());
+        String clientUuid;
+        try (Response response = keycloakClient.realm(realm).clients().create(client)) {
+            if (!(response.getStatusInfo().getFamily()==Response.Status.Family.SUCCESSFUL)) {
+                throw new RuntimeException("Failed to create Keycloak client: " + response.getStatusInfo().getReasonPhrase());
+            }
+            clientUuid = CreatedResponseUtil.getCreatedId(response);
         }
 
         auditService.log("CREATE_CLIENT",  null, Map.of("clientId", clientRequest.clientId(), "realm", realm));
-
-        String clientUuid = CreatedResponseUtil.getCreatedId(response);
 
         return clientUuid;
     }

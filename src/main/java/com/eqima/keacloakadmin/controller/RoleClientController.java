@@ -12,6 +12,7 @@ import com.eqima.keacloakadmin.models.dto.RoleClientDto;
 import com.eqima.keacloakadmin.models.request.AssignClientRoleToUserRequest;
 import com.eqima.keacloakadmin.models.request.CreateClientRoleRequest;
 import com.eqima.keacloakadmin.service.RoleClientService;
+import com.eqima.keacloakadmin.service.UserScopeService;
 
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,21 +30,25 @@ import org.springframework.web.bind.annotation.RequestParam;
 @RequestMapping("/keycloak/roles")
 public class RoleClientController {
     private final RoleClientService roleClientService;
+    private final UserScopeService userScope;
 
-    public RoleClientController(RoleClientService roleClientService) {
+    public RoleClientController(RoleClientService roleClientService, UserScopeService userScope) {
         this.roleClientService = roleClientService;
+        this.userScope = userScope;
     }
 
 //Create new client role
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public RoleClientDto createRoleClient(@RequestBody CreateClientRoleRequest request) {
+        roleClientService.assertClientIdAssignable(request.clientId());
         return roleClientService.createRoleClient(request);
     }
 
 //Remove a client role
     @DeleteMapping("/client/{clientUuid}/role/{roleUuid}")
     public Map<String, String> deleteRoleClient(@PathVariable String clientUuid, @PathVariable String roleUuid) {
+        roleClientService.assertClientAssignable(clientUuid);
         roleClientService.deleteRoleClient(clientUuid, roleUuid);
         return Map.of("delete_id", roleUuid);
     }
@@ -57,11 +62,13 @@ public class RoleClientController {
 //Get all assigned client roles for a user
     @GetMapping("/effective/{userUuid}")
     public List<RoleClientDto> getAllAssignedClientRolesForUser(@PathVariable String userUuid) {
+        userScope.assertCanManage(userUuid);
         return roleClientService.getAllEffectiveClientRolesForUser(userUuid);
     }
 //Get all available client roles for a user
     @GetMapping("/available/{userUuid}")
     public List<RoleClientDto> getAvailableClientRolesForUser(@PathVariable String userUuid) {
+        userScope.assertCanManage(userUuid);
         return roleClientService.getAllAvailableClientRolesForUser(userUuid);
     }
 
@@ -73,6 +80,7 @@ public class RoleClientController {
             @RequestParam(required = false) String roleSearch,
             @PathVariable int page,
             @RequestParam(defaultValue = "10") int size) {
+        userScope.assertCanManage(userUuid);
         return roleClientService.getAllClientRolesForUser(userUuid, page-1, size, clientSearch, roleSearch);
     }
 
@@ -82,6 +90,7 @@ public class RoleClientController {
             @PathVariable String userUuid,
             @RequestParam(required = false) String clientSearch,
             @RequestParam(required = false) String roleSearch) {
+        userScope.assertCanManage(userUuid);
         return roleClientService.getAllClientRolesForUser(userUuid, clientSearch, roleSearch);
     }
     
@@ -89,6 +98,8 @@ public class RoleClientController {
 //Assign role
     @PostMapping("/assign")
     public Map<String, String> assignClientRole(@RequestBody AssignClientRoleToUserRequest request) {
+        userScope.assertCanManage(request.userUuid());
+        roleClientService.assertClientsAssignable(request.clientRoles());
         roleClientService.assignClientRoles(request);
         return Map.of("message", "Role(s) assigned successfully");
     }
@@ -96,6 +107,8 @@ public class RoleClientController {
 //Remove assigned role
     @PostMapping("/remove")
     public Map<String, String> removeAssignedClientRole(@RequestBody AssignClientRoleToUserRequest request) {
+        userScope.assertCanManage(request.userUuid());
+        roleClientService.assertClientsAssignable(request.clientRoles());
         roleClientService.removeAssignedClientRole(request);
         return Map.of("message", "Role(s) removed successfully");
     }

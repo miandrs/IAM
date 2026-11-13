@@ -29,6 +29,9 @@ import com.eqima.keacloakadmin.models.request.AssignClientRoleToUserRequest;
 import com.eqima.keacloakadmin.models.request.ClientRoleRequest;
 import com.eqima.keacloakadmin.models.request.CreateClientRoleRequest;
 import com.eqima.keacloakadmin.util.SecurityUtils;
+import com.eqima.keacloakadmin.models.entity.ProfileRoleMapping;
+import com.eqima.keacloakadmin.repository.ProfileRoleMappingRepository;
+import org.springframework.security.access.AccessDeniedException;
 
 @Service
 public class RoleClientService {
@@ -46,14 +49,54 @@ public class RoleClientService {
     private final UserService userService;
 
     private final AuditService auditService;
+    private final SecurityUtils securityUtils;
+    private final ProfileRoleMappingRepository roleMappingRepository;
 
     @Value("${keycloak.realm}")
     private String realmName;
 
-    public RoleClientService(@Qualifier("keycloakClient") Keycloak keycloak, UserService userService, AuditService auditService) {
+    public RoleClientService(@Qualifier("keycloakClient") Keycloak keycloak, UserService userService, AuditService auditService,
+                             SecurityUtils securityUtils, ProfileRoleMappingRepository roleMappingRepository) {
         this.keycloak = keycloak;
         this.userService = userService;
         this.auditService = auditService;
+        this.securityUtils = securityUtils;
+        this.roleMappingRepository = roleMappingRepository;
+    }
+
+    /**
+     * Un ADMIN ne doit pas pouvoir attribuer de rôles des clients de plateforme (realm-management, account, ...) :
+     * "realm-management / realm-admin" ferait de n'importe quel compte un administrateur du realm.
+     */
+    public void assertClientAssignable(String clientUuid) {
+        if (securityUtils.isSuperAdmin()) return;
+        String clientId = keycloak.realm(realmName).clients().get(clientUuid).toRepresentation().getClientId();
+        if (DEFAULT_CLIENTS.contains(clientId)) {
+            throw new AccessDeniedException("Les rôles du client de plateforme '" + clientId + "' sont réservés au SUPERADMIN.");
+        }
+    }
+
+    /** Variante pour les endpoints qui reçoivent le clientId lisible plutôt que l'UUID. */
+    public void assertClientIdAssignable(String clientId) {
+        if (securityUtils.isSuperAdmin()) return;
+        if (DEFAULT_CLIENTS.contains(clientId)) {
+            throw new AccessDeniedException("Les rôles du client de plateforme '" + clientId + "' sont réservés au SUPERADMIN.");
+        }
+    }
+
+    public void assertClientsAssignable(List<ClientRoleRequest> clientRoles) {
+        if (clientRoles == null) return;
+        clientRoles.stream().map(ClientRoleRequest::clientUuid).distinct().forEach(this::assertClientAssignable);
+    }
+
+    // Un rôle supprimé ne doit pas rester référencé par un profil métier (sinon l'approbation échouerait plus tard)
+    private void dropMappingsFor(String clientUuid, String roleName) {
+        List<ProfileRoleMapping> dangling = roleMappingRepository.findByClientUuidAndRoleName(clientUuid, roleName);
+        if (!dangling.isEmpty()) {
+            roleMappingRepository.deleteAll(dangling);
+            auditService.log("DROP_ROLE_MAPPINGS", null,
+                Map.of("clientUuid", clientUuid, "roleName", roleName, "count", dangling.size()));
+        }
     }
 
     public ClientResource getClientResource(String clientUuid) {
@@ -109,6 +152,7 @@ public class RoleClientService {
         ClientResource clientResource = keycloak.realm(realmName).clients().get(clientUuid);
         String roleName = clientResource.roles().get(roleUuid).toRepresentation().getName();
         clientResource.roles().deleteRole(roleUuid);
+        dropMappingsFor(clientUuid, roleName);
 
         auditService.log("REMOVE_CLIENT_ROLE",  null, Map.of("clientUuid", clientUuid, "roleUuid", roleUuid, "roleName", roleName));
         return roleName;
@@ -125,6 +169,7 @@ public class RoleClientService {
 
         keycloak.realm(realmName).clients()
             .get(clientUuid).roles().get(role.getName()).remove();
+        dropMappingsFor(clientUuid, role.getName());
 
         auditService.log("REMOVE_CLIENT_ROLE",  null, Map.of("clientUuid", clientUuid, "roleUuid", roleUuid, "roleName", role.getName()));
     }
