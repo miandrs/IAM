@@ -1,10 +1,15 @@
 package com.eqima.keacloakadmin.service;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.GroupsResource;
@@ -15,12 +20,21 @@ import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
 import com.eqima.keacloakadmin.models.dto.UserDTO;
+import com.eqima.keacloakadmin.models.entity.AccessRequest;
+import com.eqima.keacloakadmin.models.entity.AccessRequestGate;
+import com.eqima.keacloakadmin.models.entity.AccessRequestStatus;
 import com.eqima.keacloakadmin.models.entity.KeycloakUser;
+import com.eqima.keacloakadmin.models.entity.UserProfileAssignment;
+import com.eqima.keacloakadmin.repository.AccessRequestGateRepository;
+import com.eqima.keacloakadmin.repository.AccessRequestRepository;
+import com.eqima.keacloakadmin.repository.UserProfileAssignmentRepository;
+import com.eqima.keacloakadmin.util.Details;
 import com.eqima.keacloakadmin.models.entity.RequiredActions;
 import com.eqima.keacloakadmin.repository.KeycloakUserRepository;
 import com.eqima.keacloakadmin.models.request.CreateOrganizationRequest;
@@ -45,12 +59,27 @@ public class UserService {
 
     private final OrganizationService organizationService;
 
-    public UserService(@Qualifier("keycloakClient") Keycloak keycloakClient, KeycloakUserRepository keycloakUserRepository, GroupService groupService, AuditService auditService, OrganizationService organizationService) {
+    private final SecurityUtils securityUtils;
+
+    private final UserProfileAssignmentRepository assignmentRepository;
+    private final AccessRequestRepository accessRequestRepository;
+    private final AccessRequestGateRepository gateRepository;
+
+    private static final int PAGE_SIZE = 100; // Keycloak plafonne les listes à 100 par défaut
+
+    // NB : pas de dépendance vers ProfileRevocationService (cycle UserService -> ... -> RoleClientService -> UserService)
+    public UserService(@Qualifier("keycloakClient") Keycloak keycloakClient, KeycloakUserRepository keycloakUserRepository, GroupService groupService, AuditService auditService, OrganizationService organizationService,
+                       SecurityUtils securityUtils, UserProfileAssignmentRepository assignmentRepository,
+                       AccessRequestRepository accessRequestRepository, AccessRequestGateRepository gateRepository) {
         this.keycloak = keycloakClient;
         this.keycloakUserRepository = keycloakUserRepository;
         this.groupService = groupService;
         this.auditService = auditService;
         this.organizationService = organizationService;
+        this.securityUtils = securityUtils;
+        this.assignmentRepository = assignmentRepository;
+        this.accessRequestRepository = accessRequestRepository;
+        this.gateRepository = gateRepository;
     }
 
     private UsersResource users(){
@@ -61,8 +90,15 @@ public class UserService {
     }
 
 //Get user groups from the JWT token
+    // Selon le mapper Keycloak, le claim contient "ACME" ou le chemin complet "/ACME/ADMINS" : on normalise
+    // toujours vers le nom du groupe racine (comme SecurityUtils.organizations()), et jamais null.
     public List<String> getUserGroups() {
-        return ((Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).getClaimAsStringList("groups");
+        List<String> raw = ((Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).getClaimAsStringList("groups");
+        if (raw == null) return List.of();
+        return new ArrayList<>(raw.stream()
+            .filter(g -> g != null && !g.isBlank())
+            .map(UserScopeService::topSegment)
+            .collect(Collectors.toCollection(LinkedHashSet::new)));
     }
 //Get user roles from the JWT token
     public List<String> getUserRoles() {
@@ -117,10 +153,7 @@ public class UserService {
 
         GroupRepresentation group = groupService.findByName(groupName)
                 .orElseThrow(() -> new RuntimeException("Group not found: " + groupName));
-        return keycloak.realm(realm)
-            .groups()
-            .group(group.getId())
-            .members()
+        return allGroupMembers(group.getId())
             .stream()
             .map(user -> {
                 List<String> groups = keycloak.realm(realm)
@@ -145,10 +178,7 @@ public class UserService {
             .toList();
     }
     public List<UserDTO> getUsersByRole(String role) {
-        List<UserDTO> rep = keycloak.realm(realm)
-            .roles()
-            .get(role)
-            .getUserMembers()
+        List<UserDTO> rep = allRoleMembers(role)
             .stream()
             .map(user ->{
                 List<String> groups = keycloak.realm(realm)
@@ -202,6 +232,9 @@ public class UserService {
         List<String> groupNames = this.getUserGroups();
         List<String> roles = this.getUserRoles();
         if(roles.contains("ADMIN") && !roles.contains("SUPERADMIN")){
+            if (groupNames.isEmpty()) {
+                throw new AccessDeniedException("Votre compte n'appartient à aucune organisation : création d'utilisateur impossible.");
+            }
             createUserRequest = new CreateUserRequest(
                 createUserRequest.username(),
                 createUserRequest.email(),
@@ -221,13 +254,13 @@ public class UserService {
         user.setEnabled(createUserRequest.enabled());
         user.setRequiredActions(List.of("UPDATE_PASSWORD"));
         
-        Response response = users().create(user);
-
-        if(response.getStatus() != 201){
-            throw new RuntimeException("Failed to add user: "+response.getStatus()+" "+response.getStatusInfo().getReasonPhrase());
+        String userId;
+        try (Response response = users().create(user)) {
+            if(response.getStatus() != 201){
+                throw new RuntimeException("Failed to add user: "+response.getStatus()+" "+response.getStatusInfo().getReasonPhrase());
+            }
+            userId = response.getLocation().getPath().replaceAll(".*/([^/]+)$", "$1");
         }
-
-        String userId = response.getLocation().getPath().replaceAll(".*/([^/]+)$", "$1");
 
         resetPassword(userId, createUserRequest.password(), true);
 
@@ -254,6 +287,9 @@ public class UserService {
         auditService.log("RESET_PASSWORD",  null, Map.of("userId", userId));
     } 
     public UserDTO patchUser(String userId, CreateUserRequest createUserRequest){
+        if (!securityUtils.isSuperAdmin()) {
+            requireGroupsWithinCaller(createUserRequest.groups());
+        }
         UserRepresentation user = users().get(userId).toRepresentation();
         user.setUsername(createUserRequest.username());
         user.setEmail(createUserRequest.email());
@@ -298,9 +334,8 @@ public class UserService {
     
     public void sessionRevokeAll(){
         List<String> roles = getUserRoles();
-        SecurityUtils securityUtils = new SecurityUtils();
         if (roles.contains("SUPERADMIN")) {
-            users().list().forEach(user -> users().get(user.getId()).logout());
+            allUsers().forEach(user -> users().get(user.getId()).logout());
             auditService.log("REVOKE_ALL_USER_SESSIONS", securityUtils.currentUserId(), Map.of("scope", "realm"));
             return;
         }
@@ -313,12 +348,56 @@ public class UserService {
         GroupRepresentation group = groupService.findByName(groupName)
                 .orElseThrow(() -> new RuntimeException("Group not found: " + groupName));
 
-        List<UserRepresentation> members = keycloak.realm(realm).groups().group(group.getId()).members();
+        List<UserRepresentation> members = allGroupMembers(group.getId());
         members.forEach(user -> users().get(user.getId()).logout());
 
-        auditService.log("REVOKE_ALL_USER_SESSIONS", securityUtils.currentUserId()
-        ,
+        auditService.log("REVOKE_ALL_USER_SESSIONS", securityUtils.currentUserId(),
             Map.of("scope", "group", "groupName", groupName, "userCount", members.size()));
+    }
+
+    // Un ADMIN ne peut rattacher un utilisateur qu'à ses propres organisations
+    private void requireGroupsWithinCaller(List<String> requested) {
+        if (requested == null || requested.isEmpty()) return;
+        Set<String> mine = getUserGroups().stream().map(g -> g.toUpperCase(Locale.ROOT)).collect(Collectors.toSet());
+        for (String g : requested) {
+            if (g == null || !mine.contains(UserScopeService.topSegment(g).toUpperCase(Locale.ROOT))) {
+                throw new AccessDeniedException("Groupe hors de votre périmètre : " + g);
+            }
+        }
+    }
+
+    // Les listes Keycloak sont tronquées à 100 résultats par défaut : on pagine explicitement
+    private List<UserRepresentation> allUsers() {
+        List<UserRepresentation> all = new ArrayList<>();
+        for (int first = 0; ; first += PAGE_SIZE) {
+            List<UserRepresentation> page = users().list(first, PAGE_SIZE);
+            if (page == null || page.isEmpty()) break;
+            all.addAll(page);
+            if (page.size() < PAGE_SIZE) break;
+        }
+        return all;
+    }
+
+    private List<UserRepresentation> allGroupMembers(String groupId) {
+        List<UserRepresentation> all = new ArrayList<>();
+        for (int first = 0; ; first += PAGE_SIZE) {
+            List<UserRepresentation> page = keycloak.realm(realm).groups().group(groupId).members(first, PAGE_SIZE);
+            if (page == null || page.isEmpty()) break;
+            all.addAll(page);
+            if (page.size() < PAGE_SIZE) break;
+        }
+        return all;
+    }
+
+    private List<UserRepresentation> allRoleMembers(String role) {
+        List<UserRepresentation> all = new ArrayList<>();
+        for (int first = 0; ; first += PAGE_SIZE) {
+            List<UserRepresentation> page = keycloak.realm(realm).roles().get(role).getUserMembers(first, PAGE_SIZE);
+            if (page == null || page.isEmpty()) break;
+            all.addAll(page);
+            if (page.size() < PAGE_SIZE) break;
+        }
+        return all;
     }
 
     private void assignGroupsByName(String userId, List<String> groupNames) {
@@ -334,7 +413,7 @@ public class UserService {
 
             if (groupOpt.isEmpty()) {
                 // groupService.createIfNotExist(groupName);
-                CreateOrganizationRequest org = new CreateOrganizationRequest(groupNames.get(0));
+                CreateOrganizationRequest org = new CreateOrganizationRequest(groupName);
                 organizationService.create(org);
                 groupOpt = groupsResource.groups().stream()
                             .filter(g -> g.getName().equalsIgnoreCase(groupName))
@@ -368,13 +447,13 @@ public class UserService {
         user.setEnabled(createUserRequest.enabled());
         user.setRequiredActions(List.of("UPDATE_PASSWORD"));
         
-        Response response = users(keycloak,realm).create(user);
-
-        if(response.getStatus() != 201){
-            throw new RuntimeException("Failed to add user: "+response.getStatus());
+        String userId;
+        try (Response response = users(keycloak,realm).create(user)) {
+            if(response.getStatus() != 201){
+                throw new RuntimeException("Failed to add user: "+response.getStatus());
+            }
+            userId = response.getLocation().getPath().replaceAll(".*/([^/]+)$", "$1");
         }
-
-        String userId = response.getLocation().getPath().replaceAll(".*/([^/]+)$", "$1");
 
         resetPassword(userId, createUserRequest.password(), true,keycloak,realm);
 
@@ -443,8 +522,49 @@ public class UserService {
     //         .toList();
     // }
     public void deleteUser(String userId){
-        users().delete(userId);
+        try (Response r = users().delete(userId)) {
+            // 404 : déjà supprimé dans Keycloak. On poursuit quand même, justement pour nettoyer les références locales.
+            if (r.getStatus() != 404 && r.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL) {
+                throw new RuntimeException("Failed to delete user: " + r.getStatus());
+            }
+        }
         auditService.log("DELETE_USER",  null, Map.of("userId", userId));
+        closeLocalReferences(userId);
+    }
+
+    // Avant : la suppression ne touchait que Keycloak, les attributions de profil restaient actives et les demandes en
+    // attente restaient pendantes pour un compte qui n'existe plus (source des orphelins côté base).
+    private void closeLocalReferences(String userId) {
+        Instant now = Instant.now();
+        int assignments = 0;
+        for (UserProfileAssignment a : assignmentRepository.findByUserUuidAndActiveTrue(userId)) {
+            a.setActive(false);
+            a.setRevokedAt(now);
+            a.setRevokedReason("Compte supprimé");
+            assignmentRepository.save(a);
+            assignments++;
+        }
+        int requests = 0;
+        String me = securityUtils.currentUserId();
+        for (AccessRequest r : accessRequestRepository.findByUserUuidAndStatus(userId, AccessRequestStatus.PENDING)) {
+            for (AccessRequestGate g : gateRepository.findByAccessRequestId(r.getId())) {
+                if ("PENDING".equals(g.getDecision())) {
+                    g.setDecision("REJECTED");
+                    g.setApproverUuid(me);
+                    g.setComment("Utilisateur supprimé");
+                    g.setDecidedAt(now);
+                    gateRepository.save(g);
+                }
+            }
+            r.setStatus(AccessRequestStatus.REJECTED);
+            r.setDecidedAt(now);
+            accessRequestRepository.save(r);
+            requests++;
+        }
+        if (assignments > 0 || requests > 0) {
+            auditService.log("CLEAN_DELETED_USER_REFERENCES", userId,
+                Details.of("assignmentsClosed", assignments, "requestsRejected", requests));
+        }
     }
 
 }
