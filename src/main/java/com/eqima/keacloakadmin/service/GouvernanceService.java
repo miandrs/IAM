@@ -14,7 +14,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import com.eqima.keacloakadmin.exception.ConflictException;
 import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
 import com.eqima.keacloakadmin.models.dto.AccessRequestDto;
 import com.eqima.keacloakadmin.models.dto.AccessRequestGateDto;
@@ -39,6 +41,7 @@ import com.eqima.keacloakadmin.repository.AccessRequestRepository;
 import com.eqima.keacloakadmin.repository.BusinessProfileRepository;
 import com.eqima.keacloakadmin.repository.OrganizationRepository;
 import com.eqima.keacloakadmin.repository.ProfileRoleMappingRepository;
+import com.eqima.keacloakadmin.repository.SodRuleRepository;
 import com.eqima.keacloakadmin.repository.UserProfileAssignmentRepository;
 import com.eqima.keacloakadmin.util.SecurityUtils;
 
@@ -56,8 +59,14 @@ public class GouvernanceService {
     private final BusinessProfileRepository businessProfileRepository;
     private final UserProfileAssignmentRepository userProfileAssignmentRepository;
     private final ProfileRoleMappingRepository roleMappingRepository;
+    private final UserScopeService userScope;
+    private final SodRuleRepository sodRuleRepository;
     @Value("${keycloak.realm}")
     private String realmName;
+
+    private final ProfileVisibilityService visibility;
+
+    private static final String SA_PREFIX = "[SA] ";
 
     public GouvernanceService(SecurityUtils securityUtils, 
         AuditService auditService, 
@@ -70,7 +79,10 @@ public class GouvernanceService {
         RoleClientService roleService,
         BusinessProfileRepository businessProfileRepository,
         UserProfileAssignmentRepository userProfileAssignmentRepository,
-        ProfileRoleMappingRepository roleMappingRepository) {
+        ProfileRoleMappingRepository roleMappingRepository,
+        UserScopeService userScope,
+        SodRuleRepository sodRuleRepository,
+        ProfileVisibilityService visibility) {
         this.securityUtils = securityUtils;
         this.auditService = auditService;
         this.organizationRepository = organizationRepository;
@@ -83,9 +95,33 @@ public class GouvernanceService {
         this.businessProfileRepository = businessProfileRepository;
         this.userProfileAssignmentRepository = userProfileAssignmentRepository;
         this.roleMappingRepository = roleMappingRepository;
+        this.userScope = userScope;
+        this.sodRuleRepository = sodRuleRepository;
+        this.visibility = visibility;
     }
 
+    @Transactional
     public AccessRequestDto create(CreateAccessRequestRequest req) {
+        String me = securityUtils.currentUserId();
+        if (!me.equals(req.userUuid())) {
+            // demande pour un tiers : réservé à un ADMIN / SUPERADMIN qui gère ce compte
+            userScope.assertCanManage(req.userUuid());
+        }
+        // findProfileOrThrow(req.profileId());
+        findVisibleProfileOrThrow(req.profileId()); // 404 propre si le profil n'existe pas ou n'est pas visible
+        if (!userScope.userExists(req.userUuid())) {
+            throw new ResourceNotFoundException("Utilisateur introuvable : " + req.userUuid());
+        }
+
+        policyService.assertSoDAllowed(req.userUuid(), req.profileId());  
+
+        // Organisations racines du demandeur (sous-groupes inclus), résolues AVANT toute écriture : avant, un groupe
+        // sans Organization levait une exception après l'enregistrement de la demande, qui restait en base sans gate.
+        Set<UUID> orgIds = userScope.organizationIdsOfUser(req.userUuid(), userScope.topLevelGroupIdsByName());
+        if (orgIds.isEmpty()) {
+            throw new ConflictException("Le demandeur n'appartient à aucune organisation suivie : demande impossible.");
+        }
+
         AccessRequest request = new AccessRequest();
         request.setUserUuid(req.userUuid());
         request.setProfileId(req.profileId());
@@ -94,27 +130,23 @@ public class GouvernanceService {
         request.setCreatedAt(Instant.now());
         AccessRequest saved = accessRequestRepository.save(request);
 
-        // groupes réels du demandeur, résolus via Keycloak — pas via securityUtils (qui lit l'appelant)
-        List<GroupRepresentation> requesterGroups = keycloak.realm(realmName)
-            .users().get(req.userUuid()).groups();
-
-        for (GroupRepresentation group : requesterGroups) {
-            Organization org = organizationRepository.findByKeycloakGroupId(group.getId())
-                .orElseThrow(() -> new IllegalStateException("Groupe sans Organization : " + group.getId()));
-
+        for (UUID orgId : orgIds) {
             AccessRequestGate gate = new AccessRequestGate();
             gate.setAccessRequestId(saved.getId());
-            gate.setOrganizationId(org.getId());
+            gate.setOrganizationId(orgId);
             gate.setDecision("PENDING");
             gateRepository.save(gate);
         }
 
-        auditService.log("REQUEST_ACCESS", req.userUuid(), Map.of("accessRequestId", saved.getId().toString(), "gateCount", requesterGroups.size()));
+        auditService.log("REQUEST_ACCESS", req.userUuid(), Map.of("accessRequestId", saved.getId().toString(), "gateCount", orgIds.size()));
         return toDto(saved);
     }
 
+    @Transactional
     public AccessRequestDto approve(UUID requestId, String comment) {
         AccessRequest request = findRequestOrThrow(requestId);
+        requireDecidable(request);
+        policyService.assertSoDAllowed(request.getUserUuid(), request.getProfileId());
         List<AccessRequestGate> gates = gateRepository.findByAccessRequestId(requestId);
 
         if (securityUtils.isSuperAdmin()) {
@@ -157,9 +189,11 @@ public class GouvernanceService {
             request.setDecidedAt(Instant.now());
         } else if (allDecided) {
             SodCheckResult sod = policyService.checkSoD(request.getUserUuid(), request.getProfileId());
+            
             if (sod.result().equals("REJECTED")) {
                 request.setStatus(AccessRequestStatus.REJECTED);
             } else {
+                policyService.assertSoDAllowed(request.getUserUuid(), request.getProfileId());
                 provisionProfile(request); // assigne les rôles, lignes UserProfileAssignment, recomputeMfa
                 request.setStatus(AccessRequestStatus.PROVISIONED);
             }
@@ -183,8 +217,9 @@ public class GouvernanceService {
 
             if (myOrgIds.isEmpty()) return List.of();
 
+            Map<String, String> topGroups = userScope.topLevelGroupIdsByName();
             return candidates.stream()
-                .filter(req -> !Collections.disjoint(myOrgIds, resolveRequesterOrgs(req.getUserUuid())))
+                .filter(req -> !Collections.disjoint(myOrgIds, userScope.organizationIdsOfUser(req.getUserUuid(), topGroups)))
                 .map(this::toDto)
                 .toList();
         }
@@ -194,6 +229,7 @@ public class GouvernanceService {
 
     public AccessRequestDto reject(UUID requestId, String comment) {
         AccessRequest request = findRequestOrThrow(requestId);
+        requireDecidable(request);
         List<AccessRequestGate> gates = gateRepository.findByAccessRequestId(requestId);
 
         List<AccessRequestGate> myPendingGates;
@@ -229,34 +265,42 @@ public class GouvernanceService {
 
     // IDs Organization de l'appelant courant (ADMIN) : noms du token -> groupes Keycloak -> Organization
     private Set<UUID> currentApproverOrgIds() {
-        List<String> myGroupIds = groupService.getAllGroups().stream()
-            .map(GroupRepresentation::getId)
-            .toList();
+        // List<String> myGroupIds = groupService.getAllGroups().stream()
+        //     .map(GroupRepresentation::getId)
+        //     .toList();
 
-        if (myGroupIds.isEmpty()) {
-            return Set.of();
-        }
+        // if (myGroupIds.isEmpty()) {
+        //     return Set.of();
+        // }
 
-        return organizationRepository.findByKeycloakGroupIdIn(myGroupIds).stream()
-            .map(Organization::getId)
-            .collect(Collectors.toSet());
+        // return organizationRepository.findByKeycloakGroupIdIn(myGroupIds).stream()
+        //     .map(Organization::getId)
+        //     .collect(Collectors.toSet());
+        return userScope.callerOrganizationIds();
     }
 
     // ═══════════════ Business Profiles ═══════════════
 
     public List<BusinessProfileDto> listProfiles() {
-        return businessProfileRepository.findAll().stream().map(this::toProfileDto).toList();
+        var visible = visibility.visibilityFilter();
+        return businessProfileRepository.findAll().stream().filter(visible).map(this::toProfileDto).toList();
     }
 
     public BusinessProfileDto getProfile(UUID id) {
-        return toProfileDto(findProfileOrThrow(id));
+        return toProfileDto(findVisibleProfileOrThrow(id));
     }
 
     public BusinessProfileDto createProfile(CreateBusinessProfileRequest req) {
+        requireProfileManager();
+        boolean sa = securityUtils.isSuperAdmin();
         BusinessProfile profile = new BusinessProfile();
-        profile.setName(req.name());
+        profile.setName(sa ? withSaPrefix(req.name()) : req.name());
         profile.setOrganizationId(req.organizationId());
         profile.setMfaRequired(req.mfaRequired());
+        // jamais lus dans la requête : toujours dérivés de l'utilisateur connecté
+        profile.setCreatedBy(securityUtils.currentUserId());
+        profile.setOwnerRole(securityUtils.isSuperAdmin()
+            ? ProfileVisibilityService.OWNER_SUPERADMIN : ProfileVisibilityService.OWNER_ADMIN);
         BusinessProfile saved = businessProfileRepository.save(profile);
 
         auditService.log("CREATE_PROFILE", String.valueOf(profile.getId()),
@@ -265,8 +309,12 @@ public class GouvernanceService {
     }
 
     public BusinessProfileDto updateProfile(UUID id, UpdateBusinessProfileRequest req) {
-        BusinessProfile profile = findProfileOrThrow(id);
-        if (req.name() != null) profile.setName(req.name());
+        requireProfileManager();
+        BusinessProfile profile = findVisibleProfileOrThrow(id);
+        if (req.name() != null) {
+            boolean saProfile = ProfileVisibilityService.OWNER_SUPERADMIN.equals(profile.getOwnerRole());
+            profile.setName(saProfile ? withSaPrefix(req.name()) : stripSaPrefix(req.name()));
+        }
         if (req.mfaRequired() != null) profile.setMfaRequired(req.mfaRequired());
         BusinessProfile saved = businessProfileRepository.save(profile);
 
@@ -274,10 +322,31 @@ public class GouvernanceService {
         return toProfileDto(saved);
     }
 
+    @Transactional
     public void deleteProfile(UUID id) {
-        findProfileOrThrow(id); // vérifie l'existence avant de supprimer
+        requireProfileManager();
+        findVisibleProfileOrThrow(id);
+        if (userProfileAssignmentRepository.existsByProfileIdAndActiveTrue(id)) {
+            throw new ConflictException("Ce profil est attribué à des utilisateurs : révoquez d'abord les attributions.");
+        }
+        if (accessRequestRepository.existsByProfileIdAndStatus(id, AccessRequestStatus.PENDING)) {
+            throw new ConflictException("Des demandes d'accès en attente visent ce profil : traitez-les d'abord.");
+        }
+        // plus de lignes orphelines : mappings de rôles et règles SoD qui référencent ce profil
+        roleMappingRepository.deleteAll(roleMappingRepository.findByProfileId(id));
+        sodRuleRepository.deleteAll(sodRuleRepository.findAllInvolvingProfile(id));
         businessProfileRepository.deleteById(id);
         auditService.log("DELETE_PROFILE", String.valueOf(id), Map.of("profileId", id.toString()));
+    }
+
+    private BusinessProfile findVisibleProfileOrThrow(UUID id) {
+        return visibility.requireVisible(findProfileOrThrow(id));
+    }
+
+    private void requireProfileManager() {
+        if (!securityUtils.isAdmin() && !securityUtils.isSuperAdmin()) {
+            throw new AccessDeniedException("Réservé aux ADMIN et SUPERADMIN.");
+        }
     }
 
     private BusinessProfile findProfileOrThrow(UUID id) {
@@ -292,11 +361,15 @@ public class GouvernanceService {
     // ═══════════════ Role mappings ═══════════════
 
     public List<ProfileRoleMappingDto> listRoleMappings(UUID profileId) {
+        findVisibleProfileOrThrow(profileId);
         return roleMappingRepository.findByProfileId(profileId).stream().map(this::toMappingDto).toList();
+
     }
 
     public ProfileRoleMappingDto createRoleMapping(UUID profileId, CreateRoleMappingRequest req) {
-        findProfileOrThrow(profileId); // 404 propre si le profil n'existe pas
+        requireProfileManager();
+        findVisibleProfileOrThrow(profileId); // 404 propre si le profil n'existe pas
+        roleService.assertClientAssignable(req.clientUuid());
 
         ProfileRoleMapping mapping = new ProfileRoleMapping();
         mapping.setProfileId(profileId);
@@ -310,8 +383,12 @@ public class GouvernanceService {
     }
 
     public void deleteRoleMapping(UUID mappingId) {
+        requireProfileManager();
+
         ProfileRoleMapping mapping = roleMappingRepository.findById(mappingId)
             .orElseThrow(() -> new ResourceNotFoundException("Mapping introuvable : " + mappingId));
+
+        findVisibleProfileOrThrow(mapping.getProfileId()); // 404 propre si le profil associé n'est pas visible
         roleMappingRepository.deleteById(mappingId);
 
         auditService.log("DELETE_ROLE_MAPPING", String.valueOf(mappingId),
@@ -351,6 +428,17 @@ public class GouvernanceService {
 
         auditService.log("ASSIGN_PROFILE", String.valueOf(profile.getId()),
             Map.of("accessRequestId", request.getId().toString(), "userUuid", request.getUserUuid(), "profileId", request.getProfileId().toString()));
+    }
+
+    // Une demande déjà PROVISIONED / REJECTED ne se rejoue pas (sinon une ré-approbation, vue comme "profil déjà actif"
+    // par le SoD, faisait passer une demande provisionnée à REJECTED). Et on ne décide jamais de sa propre demande.
+    private void requireDecidable(AccessRequest request) {
+        if (request.getStatus() != AccessRequestStatus.PENDING) {
+            throw new ConflictException("La demande est déjà traitée : " + request.getStatus());
+        }
+        if (securityUtils.currentUserId().equals(request.getUserUuid())) {
+            throw new AccessDeniedException("Vous ne pouvez pas décider de votre propre demande.");
+        }
     }
 
     private AccessRequest findRequestOrThrow(UUID requestId) {
@@ -419,16 +507,14 @@ public class GouvernanceService {
         }
     }
 
-    // renvoie l'ensemble des IDs Organization du demandeur — pas celui de l'appelant courant,
-    // donc on interroge Keycloak directement plutôt que SecurityUtils (qui lit le JWT en session)
-    private Set<UUID> resolveRequesterOrgs(String requesterUuid) {
-        List<GroupRepresentation> groups = keycloak.realm(realmName).users().get(requesterUuid).groups();
+    private static String withSaPrefix(String name) {
+        String n = name.strip();
+        return n.startsWith(SA_PREFIX) ? n : SA_PREFIX + n;
+    }
 
-        return groups.stream()
-            .map(g -> organizationRepository.findByKeycloakGroupId(g.getId())
-                .orElseThrow(() -> new IllegalStateException(
-                    "Groupe sans Organization associée : " + g.getId() + " (" + g.getName() + ")")))
-            .map(Organization::getId)
-            .collect(Collectors.toSet());
+    // un ADMIN ne doit pas pouvoir se faire passer pour un profil SUPERADMIN
+    private static String stripSaPrefix(String name) {
+        String n = name.strip();
+        return n.startsWith(SA_PREFIX) ? n.substring(SA_PREFIX.length()).strip() : n;
     }
 }
