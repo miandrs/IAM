@@ -161,4 +161,19 @@ public class OrganizationService {
     private OrganizationDto toDto(Organization org, String name) {
         return new OrganizationDto(org.getId(), org.getKeycloakGroupId(), name, org.isActive());
     }
+
+    public void detachUser(UUID id, String userId) {
+        // Avant : l'id de l'Organization était passé tel quel à Keycloak comme id de groupe (404 systématique), alors
+        // que attachUser résout bien le groupe. On résout l'Organization ; par tolérance pour les clients qui
+        // enverraient déjà l'id du groupe Keycloak, on accepte aussi cette valeur.
+        String groupId = organizationRepository.findById(id)
+            .map(Organization::getKeycloakGroupId)
+            .orElseGet(() -> organizationRepository.findByKeycloakGroupId(id.toString())
+                .map(Organization::getKeycloakGroupId)
+                .orElseThrow(() -> new ResourceNotFoundException("Organisation introuvable : " + id)));
+        keycloak.realm(realm).users().get(userId).leaveGroup(groupId);
+
+        auditService.log("DETACH_USER_FROM_ORGANIZATION", userId,
+            Map.of("organizationId", id.toString(), "userId", userId));
+    }
 }

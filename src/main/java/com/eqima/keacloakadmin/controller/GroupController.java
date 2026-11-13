@@ -5,6 +5,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.eqima.keacloakadmin.models.dto.UserDTO;
 import com.eqima.keacloakadmin.models.request.CreateGroupRequest;
 import com.eqima.keacloakadmin.service.GroupService;
+import com.eqima.keacloakadmin.service.UserScopeService;
 
 import java.util.List;
 
@@ -29,8 +30,10 @@ import org.springframework.web.bind.annotation.PutMapping;
 public class GroupController {
 
     private final GroupService groupService;
-    public GroupController(GroupService groupService) {
+    private final UserScopeService userScope;
+    public GroupController(GroupService groupService, UserScopeService userScope) {
         this.groupService = groupService;
+        this.userScope = userScope;
     }
 
     @PostMapping
@@ -47,29 +50,36 @@ public class GroupController {
 
     @GetMapping("/{id}")
     public GroupRepresentation getGroupById(@PathVariable String id) {
+        userScope.assertGroupInScope(id);
         return groupService.getGroupById(id);
     }
     
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteGroup(@PathVariable String id) {
+        userScope.assertGroupInScope(id);
         groupService.deleteGroup(id);   
     }
     
     @PutMapping("/{id}/members/{userId}")
     public String addMember(@PathVariable String id, @PathVariable String userId) {
+        userScope.assertGroupInScope(id);
+        userScope.assertNotSuperAdminTarget(userId);
         groupService.addUserToGroup(userId, id); // nouveau, ajout pur
         return "User added to group successfully";
     }
 
     @DeleteMapping("/{id}/members/{userId}")
     public String deleteGroupMember(@PathVariable String id, @PathVariable String userId) {
+        userScope.assertGroupInScope(id);
+        userScope.assertNotSuperAdminTarget(userId);
         groupService.removeUserFromGroup(userId, id);
         return "User removed from group successfully";
     }
 
     @GetMapping("/{id}/members")
     public List<UserDTO> getMethodName(@RequestParam int page, @RequestParam int size, @PathVariable String id) {
+        userScope.assertGroupInScope(id);
         return groupService.getAllGroupsMembers(id, page, size);
     }
     
