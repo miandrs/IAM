@@ -1,5 +1,6 @@
 package com.eqima.keacloakadmin.service;
 
+import com.eqima.keacloakadmin.exception.ConflictException;
 import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
 import com.eqima.keacloakadmin.models.dto.MfaRecomputeResult;
 import com.eqima.keacloakadmin.models.dto.SodCheckResult;
@@ -41,13 +42,16 @@ public class PolicyService {
     @Value("${keycloak.realm}")
     private String realmName;
 
+    private final ProfileVisibilityService visibility;
+
     public PolicyService(
         UserProfileAssignmentRepository assignmentRepository,
         SodRuleRepository sodRuleRepository,
         BusinessProfileRepository profileRepository,
         @Qualifier("keycloakClient") Keycloak keycloakClient,
         AuditService auditService,
-        SecurityUtils securityUtils
+        SecurityUtils securityUtils,
+        ProfileVisibilityService profileVisibilityService
     ) {
         this.assignmentRepository = assignmentRepository;
         this.sodRuleRepository = sodRuleRepository;
@@ -55,6 +59,7 @@ public class PolicyService {
         this.keycloakClient = keycloakClient;
         this.auditService = auditService;
         this.securityUtils = securityUtils;
+        this.visibility = profileVisibilityService;
     }
 
     // ═══════════════ SoD — vérification ═══════════════
@@ -89,14 +94,21 @@ public class PolicyService {
         return new SodCheckResult("APPROVED", null);
     }
 
-    private String buildReason(SodRule rule, UUID conflictingProfileId) {
-        if (rule.getReason() != null && !rule.getReason().isBlank()) {
-            return rule.getReason();
+    public void assertSoDAllowed(String userUuid, UUID profileId) {
+        SodCheckResult r = checkSoD(userUuid, profileId);
+        if (!"APPROVED".equals(r.result())) {
+            throw new ConflictException(r.reason());
         }
-        String conflictingName = profileRepository.findById(conflictingProfileId)
-            .map(BusinessProfile::getName)
-            .orElse(conflictingProfileId.toString());
-        return "Incompatible avec le profil déjà actif : " + conflictingName;
+    }
+
+    // checkSoD : ne pas révéler un profil caché à l'appelant
+    private String buildReason(SodRule rule, UUID conflictingProfileId) {
+        Optional<BusinessProfile> conflicting = profileRepository.findById(conflictingProfileId);
+        if (!conflicting.map(visibility::canSee).orElse(false)) {
+            return "Incompatible avec un profil déjà attribué à cet utilisateur.";   // le motif libre peut nommer le profil caché
+        }
+        if (rule.getReason() != null && !rule.getReason().isBlank()) return rule.getReason();
+        return "Incompatible avec le profil déjà actif : " + conflicting.get().getName();
     }
 
     // ═══════════════ SoD — gestion des règles ═══════════════
@@ -113,23 +125,29 @@ public class PolicyService {
             ids.add(r.getProfileId());
             ids.add(r.getIncompatibleProfileId());
         }
-        Map<UUID, String> names = profileRepository.findAllById(ids).stream()
+                // listRules : ne garder que les règles dont les deux profils sont visibles
+        Map<UUID, BusinessProfile> profiles = profileRepository.findAllById(ids).stream()
+            .collect(Collectors.toMap(BusinessProfile::getId, p -> p));
+        var visible = visibility.visibilityFilter();
+        Map<UUID, String> names = profiles.values().stream()
             .collect(Collectors.toMap(BusinessProfile::getId, BusinessProfile::getName));
-
-        return rules.stream().map(r -> toRuleDto(r, names)).toList();
+        return rules.stream()
+            .filter(r -> profiles.containsKey(r.getProfileId()) && visible.test(profiles.get(r.getProfileId()))
+                    && profiles.containsKey(r.getIncompatibleProfileId()) && visible.test(profiles.get(r.getIncompatibleProfileId())))
+            .map(r -> toRuleDto(r, names)).toList();
     }
 
 
     public SodRuleDto createRule(CreateSodRuleRequest req) {
-        requireSuperAdmin(); // CORRECTION : les règles SoD sont globales
+        requireAdmin(); // CORRECTION : les règles SoD sont globales
 
         if (req.profileId().equals(req.incompatibleProfileId())) {
             throw new IllegalArgumentException("Un profil ne peut pas être incompatible avec lui-même.");
         }
-        BusinessProfile profile = profileRepository.findById(req.profileId())
-            .orElseThrow(() -> new ResourceNotFoundException("Profil inexistant : " + req.profileId()));
-        BusinessProfile incompatible = profileRepository.findById(req.incompatibleProfileId())
-            .orElseThrow(() -> new ResourceNotFoundException("Profil inexistant : " + req.incompatibleProfileId()));
+        BusinessProfile profile = visibility.requireVisible(profileRepository.findById(req.profileId())
+            .orElseThrow(() -> new ResourceNotFoundException("Profil inexistant : " + req.profileId())));
+        BusinessProfile incompatible = visibility.requireVisible(profileRepository.findById(req.incompatibleProfileId())
+            .orElseThrow(() -> new ResourceNotFoundException("Profil inexistant : " + req.incompatibleProfileId())));
 
         // CORRECTION : (A,B) et (B,A) sont équivalentes
         if (sodRuleRepository.existsBetween(profile.getId(), incompatible.getId())) {
@@ -167,6 +185,12 @@ public class PolicyService {
     private void requireSuperAdmin() {
         if (!securityUtils.isSuperAdmin()) {
             throw new AccessDeniedException("Réservé au SUPERADMIN");
+        }
+    }
+
+    private void requireAdmin() {
+        if (!securityUtils.isAdmin()) {
+            throw new AccessDeniedException("Réservé au ADMIN");
         }
     }
 

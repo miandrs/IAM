@@ -7,6 +7,8 @@ import com.eqima.keacloakadmin.models.entity.SodRule;
 import com.eqima.keacloakadmin.models.request.CreateSodRuleRequest;
 import com.eqima.keacloakadmin.models.request.SodCheckRequest;
 import com.eqima.keacloakadmin.service.PolicyService;
+import com.eqima.keacloakadmin.service.UserScopeService;
+import com.eqima.keacloakadmin.util.SecurityUtils;
 
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -22,14 +24,19 @@ import java.util.UUID;
 public class PolicyController {
 
     private final PolicyService policyService;
+    private final UserScopeService userScope;
 
-    public PolicyController(PolicyService policyService) {
+    public PolicyController(PolicyService policyService, UserScopeService userScope) {
         this.policyService = policyService;
+        this.userScope = userScope;
     }
 
     @PostMapping("/sod/check")
     public SodCheckResult checkSoD(@Valid @RequestBody SodCheckRequest request) {
-        return policyService.checkSoD(request.userUuid(), request.requestedProfileId());
+        SecurityUtils securityUtils = new SecurityUtils();
+        if (!securityUtils.currentUserId().equals(request.userUuid())) userScope.assertCanManage(request.userUuid());
+        policyService.assertSoDAllowed(request.userUuid(), request.requestedProfileId());
+        return new SodCheckResult("APPROVED", null);
     }
 
     @GetMapping("/sod-rules")
@@ -51,6 +58,7 @@ public class PolicyController {
 
     @PostMapping("/mfa/recompute/{userUuid}")
     public MfaRecomputeResult recomputeMfa(@PathVariable String userUuid) {
+        userScope.assertCanManage(userUuid);
         return policyService.recomputeMfa(userUuid);
     }
 
