@@ -32,9 +32,12 @@ spring:
                     jwk-set-uri: ${spring.security.oauth2.resourceserver.jwt.issuer-uri}/protocol/openid-connect/certs 
                     cache-duration: 3600s
     datasource:
-        url: jdbc:mysql://localhost:3306/plateforme_Saas
-        username: root
-        password: root
+        # url: jdbc:mysql://localhost:3306/plateforme_Saas
+        # username: root
+        # password: root
+        url: jdbc:mysql://185.246.87.101:3306/iam
+        username: iam
+        password: 1ptgy1pthPd2xh2A
         driver-class-name: com.mysql.cj.jdbc.Driver
     jpa:
         hibernate:
@@ -56,9 +59,14 @@ swagger:
   description: API documentation for Tsinjo application
   version: 1.0.0
   local-url: http://localhost:8090
-  server-url: https://preprod.saas.eqima.org
+  server-url: https://preprod.backend-iam.eqima.org
 
 encryption:
     secret-key: a6fc92c5a3cee57d4090a9b45ad1f0cc
 
 debug: true
+# logging:
+#   level:
+#     com:
+#         zaxxer:
+#             hikari: DEBUG
