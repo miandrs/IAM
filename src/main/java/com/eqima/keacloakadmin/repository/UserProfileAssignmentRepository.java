@@ -9,4 +9,6 @@ import java.util.List;
 
 public interface UserProfileAssignmentRepository extends JpaRepository<UserProfileAssignment, UUID> {
     List<UserProfileAssignment> findByUserUuidAndActiveTrue(String userUuid);
+    List<UserProfileAssignment> findByActiveTrue();
+    boolean existsByProfileIdAndActiveTrue(UUID profileId);
 }

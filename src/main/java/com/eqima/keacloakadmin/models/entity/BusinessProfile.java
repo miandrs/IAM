@@ -21,4 +21,9 @@ public class BusinessProfile {
 
     @Column(nullable = false)
     private boolean mfaRequired = false;
+
+    @Column(name = "created_by") 
+    private String createdBy;   // sub Keycloak du créateur
+    @Column(name = "owner_role") 
+    private String ownerRole;   // "ADMIN" ou "SUPERADMIN"
 }

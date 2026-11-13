@@ -9,4 +9,5 @@ import com.eqima.keacloakadmin.models.entity.ProfileRoleMapping;
 
 public interface ProfileRoleMappingRepository extends JpaRepository<ProfileRoleMapping, UUID> {
     List<ProfileRoleMapping> findByProfileId(UUID profileId);
+    List<ProfileRoleMapping> findByClientUuidAndRoleName(String clientUuid, String roleName);
 }

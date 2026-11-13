@@ -36,4 +36,7 @@ public class UserProfileAssignment {
     void onCreate() {
         if (assignedAt == null) assignedAt = Instant.now();
     }
+
+    private Instant lastCertifiedAt;
+    private String revokedReason;
 }
