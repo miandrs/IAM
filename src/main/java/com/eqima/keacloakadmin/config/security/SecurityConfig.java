@@ -32,11 +32,14 @@ public class SecurityConfig {
         .csrf(csrf -> csrf.disable())
         .authorizeHttpRequests(authorize -> authorize
             .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
+            .requestMatchers(org.springframework.http.HttpMethod.GET, "/").permitAll()
+            .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
             .requestMatchers(org.springframework.http.HttpMethod.POST, "/governance/access-requests").authenticated()
             .requestMatchers(org.springframework.http.HttpMethod.GET, "/governance/profiles/**").authenticated()
-            .requestMatchers("/keycloak/**", "/governance/**", "/audit/**").hasAnyRole("ADMIN", "SUPERADMIN")
+            .requestMatchers("/encrypt", "/decrypt").hasRole("SUPERADMIN")
+            .requestMatchers("/keycloak/**", "/governance/**", "/audit/**", "/policy/**").hasAnyRole("ADMIN", "SUPERADMIN")
             .requestMatchers("/api/**").authenticated()
-            .anyRequest().permitAll()
+            .anyRequest().authenticated()
         )
         .oauth2ResourceServer(o2 -> o2.jwt(jwt -> jwt.jwtAuthenticationConverter((Converter<Jwt, ? extends AbstractAuthenticationToken>) jwtAuthConverter)));
         return http.build();
@@ -46,7 +49,7 @@ public class SecurityConfig {
     CorsConfigurationSource corsConfigurationSource() {
         return request -> {
             var cors = new CorsConfiguration();
-            cors.setAllowedOrigins(java.util.List.of("https://preprod.plateforme.eqima.org", "https://preprod.tsinjo.eqima.org","http://localhost:4200", "http://localhost:4300"));
+            cors.setAllowedOrigins(java.util.List.of("https://preprod.backend-iam.eqima.org", "https://preprod.iam.eqima.org","http://localhost:4300"));
             cors.setAllowedMethods(java.util.List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
             cors.setAllowedHeaders(java.util.List.of("*"));
             cors.setExposedHeaders(java.util.List.of("*"));
