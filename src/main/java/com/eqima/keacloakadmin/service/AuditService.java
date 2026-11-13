@@ -68,6 +68,17 @@ public class AuditService {
         return repository.save(event);
     }
 
+    // Pour les tâches planifiées : il n'y a pas de JWT, log() échouerait. Acteur fixe "SYSTEM".
+    public AuditEvent logSystem(String eventType, String targetUserUuid, Map<String, Object> details) {
+        AuditEvent event = new AuditEvent();
+        event.setEventType(eventType);
+        event.setActorUuid("SYSTEM");
+        event.setUsername("system");
+        event.setTargetUserUuid(targetUserUuid);
+        event.setDetails(details);
+        return repository.save(event);
+    }
+
     public PagedResult<AuditEventDto> search(String userUuid, String eventType, Instant from, Instant to, int page, int size) {
         Specification<AuditEvent> spec = Specification
             .where(involvesUser(userUuid))

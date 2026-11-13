@@ -10,4 +10,6 @@ import com.eqima.keacloakadmin.models.entity.AccessRequestStatus;
 
 public interface AccessRequestRepository extends JpaRepository<AccessRequest, UUID> {
     List<AccessRequest> findByStatus(AccessRequestStatus status);
+    List<AccessRequest> findByUserUuidAndStatus(String userUuid, AccessRequestStatus status);
+    boolean existsByProfileIdAndStatus(UUID profileId, AccessRequestStatus status);
 }

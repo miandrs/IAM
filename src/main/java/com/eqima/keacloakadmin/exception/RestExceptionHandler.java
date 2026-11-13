@@ -1,5 +1,6 @@
 package com.eqima.keacloakadmin.exception;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -46,9 +47,25 @@ public class RestExceptionHandler extends ResponseEntityExceptionHandler{
         return ResponseEntity.status(errorResponse.getStatus()).body(errorResponse);
     }
 
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleIntegrity(DataIntegrityViolationException ex, WebRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(
+            HttpStatus.CONFLICT.value(),
+            "Cette opération entre en conflit avec des données existantes.",
+            "Conflit.",
+            request.getDescription(false)));
+    }
+
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ErrorResponse> handleConflict(ConflictException ex, WebRequest request) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
             .body(new ErrorResponse(HttpStatus.CONFLICT.value(), ex.getMessage(), "Données dupliqué", request.getDescription(true)));
+    }
+
+    // Sans ce handler, le catch-all Exception.class ci-dessus transforme tout refus d'accès levé par un service en HTTP 500.
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(org.springframework.security.access.AccessDeniedException ex, WebRequest request) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+            .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), ex.getMessage(), "Accès refusé.", request.getDescription(false)));
     }
 }
