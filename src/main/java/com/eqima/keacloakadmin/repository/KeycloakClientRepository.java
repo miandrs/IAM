@@ -13,4 +13,5 @@ import com.eqima.keacloakadmin.models.entity.KeycloakClient;
 public interface KeycloakClientRepository extends JpaRepository<KeycloakClient, UUID> {
     Optional<KeycloakClient> findByRealmName(String realmName);
     Optional<KeycloakClient> findByIssuerUri(String issuerUri);
+    Optional<KeycloakClient> findByRealmNameAndClientId(String realmName, String clientId);
 }
