@@ -30,17 +30,20 @@ public class ProfileRevocationService {
     private final RoleClientService roleService;
     private final PolicyService policyService;
     private final AuditService auditService;
+    private final UserScopeService userScope;
 
     public ProfileRevocationService(UserProfileAssignmentRepository assignmentRepository,
                                     ProfileRoleMappingRepository mappingRepository,
                                     RoleClientService roleService,
                                     PolicyService policyService,
-                                    AuditService auditService) {
+                                    AuditService auditService,
+                                    UserScopeService userScope) {
         this.assignmentRepository = assignmentRepository;
         this.mappingRepository = mappingRepository;
         this.roleService = roleService;
         this.policyService = policyService;
         this.auditService = auditService;
+        this.userScope = userScope;
     }
 
     public void revoke(UserProfileAssignment assignment, String reason) {
@@ -75,11 +78,13 @@ public class ProfileRevocationService {
         try {
             policyService.recomputeMfa(assignment.getUserUuid());
         } catch (Exception e) {
-            auditService.log("RECOMPUTE_MFA_FAILED", assignment.getUserUuid(),
+            String username = userScope.findUser(assignment.getUserUuid()).get().getUsername();
+            auditService.log("RECOMPUTE_MFA_FAILED", assignment.getUserUuid(), username,
                 Details.of("assignmentId", assignment.getId(), "error", e.getMessage()));
         }
 
-        auditService.log("REVOKE_PROFILE", assignment.getUserUuid(),
+        String username = userScope.findUser(assignment.getUserUuid()).get().getUsername();
+        auditService.log("REVOKE_PROFILE", assignment.getUserUuid(), username,
             Details.of("assignmentId", assignment.getId(), "profileId", assignment.getProfileId(),
                 "rolesRemoved", toRemove.size(), "reason", reason));
     }
@@ -91,7 +96,8 @@ public class ProfileRevocationService {
         assignment.setRevokedAt(Instant.now());
         assignment.setRevokedReason(reason);
         assignmentRepository.save(assignment);
-        auditService.log("REVOKE_PROFILE_LOCAL", assignment.getUserUuid(),
+        String username = userScope.findUser(assignment.getUserUuid()).get().getUsername();
+        auditService.log("REVOKE_PROFILE_LOCAL", assignment.getUserUuid(), username,
             Details.of("assignmentId", assignment.getId(), "profileId", assignment.getProfileId(), "reason", reason));
     }
 
