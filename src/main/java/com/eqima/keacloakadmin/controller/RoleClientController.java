@@ -11,6 +11,7 @@ import com.eqima.keacloakadmin.models.dto.PagedResult;
 import com.eqima.keacloakadmin.models.dto.RoleClientDto;
 import com.eqima.keacloakadmin.models.request.AssignClientRoleToUserRequest;
 import com.eqima.keacloakadmin.models.request.CreateClientRoleRequest;
+import com.eqima.keacloakadmin.service.AssignmentGuardService;
 import com.eqima.keacloakadmin.service.RoleClientService;
 import com.eqima.keacloakadmin.service.UserScopeService;
 
@@ -31,10 +32,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class RoleClientController {
     private final RoleClientService roleClientService;
     private final UserScopeService userScope;
+    private final AssignmentGuardService assignmentGuard;
 
-    public RoleClientController(RoleClientService roleClientService, UserScopeService userScope) {
+    public RoleClientController(RoleClientService roleClientService, UserScopeService userScope,
+                                AssignmentGuardService assignmentGuard) {
         this.roleClientService = roleClientService;
         this.userScope = userScope;
+        this.assignmentGuard = assignmentGuard;
     }
 
 //Create new client role
@@ -100,6 +104,7 @@ public class RoleClientController {
     public Map<String, String> assignClientRole(@RequestBody AssignClientRoleToUserRequest request) {
         userScope.assertCanManage(request.userUuid());
         roleClientService.assertClientsAssignable(request.clientRoles());
+        assignmentGuard.assertAllowed(request.userUuid(), null, request.clientRoles()); // SoD de rôles AVANT toute attribution
         roleClientService.assignClientRoles(request);
         return Map.of("message", "Role(s) assigned successfully");
     }
