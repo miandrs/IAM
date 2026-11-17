@@ -56,7 +56,7 @@ public class GroupService {
             }
             id = CreatedResponseUtil.getCreatedId(response); // throws if status isn't 201
         }
-        auditService.log("CREATE_GROUP", null, Map.of("groupName", name));
+        auditService.log("CREATE_GROUP", null, null, Map.of("groupName", name));
         return getGroupById(id);
     }
 
@@ -70,7 +70,7 @@ public class GroupService {
     public GroupRepresentation createIfNotExist(String groupName) {
         GroupRepresentation existingGroup =  findByName(groupName.trim().toUpperCase(Locale.ROOT))
             .orElseGet(() -> createGroup(new CreateGroupRequest(groupName)));
-        auditService.log("CREATE_GROUP_IF_NOT_EXIST",  null, Map.of("groupName", groupName.toUpperCase()));
+        auditService.log("CREATE_GROUP_IF_NOT_EXIST", null, null, Map.of("groupName", groupName.toUpperCase()));
         return existingGroup;
         
     }
@@ -116,7 +116,7 @@ public class GroupService {
 
     public void deleteGroup(String groupId) {
         keycloak.realm(realm).groups().group(groupId).remove();
-        auditService.log("DELETE_GROUP",  null, Map.of("groupId", groupId));
+        auditService.log("DELETE_GROUP", null, null, Map.of("groupId", groupId));
     }
 
     public void setGroupMembersEnabled(String groupId, boolean enabled) {
@@ -144,7 +144,7 @@ public class GroupService {
         } while (page.size() == pageSize);
 
         auditService.log(enabled ? "ENABLE_GROUP_MEMBERS" : "DISABLE_GROUP_MEMBERS",
-                null, Map.of("groupId", groupId));
+                null, null, Map.of("groupId", groupId));
     }
 
     public void updateUserGroups(String userId, List<String> groupIds) {
@@ -158,18 +158,18 @@ public class GroupService {
         current.stream().filter(id -> !target.contains(id)).forEach(user::leaveGroup);
         target.stream().filter(id -> !current.contains(id)).forEach(user::joinGroup);
 
-        auditService.log("UPDATE_USER_GROUPS", null, Map.of("userId", userId, "groupIds", groupIds.toString()));
+        auditService.log("UPDATE_USER_GROUPS", userId, userIdToUsername(userId), Map.of("userId", userId, "groupIds", groupIds.toString()));
     }
 
     // GroupService — nouvelle méthode, à côté de updateUserGroups (inchangée, gardée pour son usage existant ailleurs)
     public void addUserToGroup(String userId, String groupId) {
         keycloak.realm(realm).users().get(userId).joinGroup(groupId);
-        auditService.log("ADD_USER_TO_GROUP", userId, Map.of("userId", userId, "groupId", groupId));
+        auditService.log("ADD_USER_TO_GROUP", userId, userIdToUsername(userId), Map.of("userId", userId, "groupId", groupId));
     }
 
     public void removeUserFromGroup(String userId, String groupId) {
         keycloak.realm(realm).users().get(userId).leaveGroup(groupId);
-        auditService.log("REMOVE_USER_FROM_GROUP",  null, Map.of("userId", userId, "groupId", groupId));
+        auditService.log("REMOVE_USER_FROM_GROUP", userId, userIdToUsername(userId), Map.of("userId", userId, "groupId", groupId));
     }
 
     public List<UserDTO> getAllGroupsMembers(String groupId, int page, int size) {
@@ -178,5 +178,9 @@ public class GroupService {
         return keycloak.realm(realm).groups().group(groupId).members(first, size).stream()
             .map(user -> new UserDTO(user.getId(), user.getUsername(), user.getFirstName(), user.getLastName(), user.getEmail(), user.getCreatedTimestamp() != null ? Instant.ofEpochMilli(user.getCreatedTimestamp()) : null, user.isEnabled(), List.of(groupName)))
                 .toList();
+    }
+
+    private String userIdToUsername(String userId) {
+        return keycloak.realm(realm).users().get(userId).toRepresentation().getUsername();
     }
 }

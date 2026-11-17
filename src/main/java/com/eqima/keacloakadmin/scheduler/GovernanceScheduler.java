@@ -68,7 +68,7 @@ public class GovernanceScheduler {
         if (!enabled) return;
         try {
             OrphanReportDto report = orphanAccountService.scanAsSystem();
-            auditService.logSystem("ORPHAN_SCAN", null,
+            auditService.logSystem("ORPHAN_SCAN", null, null,
                 Details.of("totalUsers", report.totalKeycloakUsers(), "findings", report.totalFindings(),
                     "byType", report.countsByType()));
             log.info("Scan des orphelins : {} constat(s) {}", report.totalFindings(), report.countsByType());

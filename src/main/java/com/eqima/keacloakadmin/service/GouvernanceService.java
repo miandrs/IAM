@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.representations.idm.GroupRepresentation;
+import org.keycloak.representations.idm.UserRepresentation;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.AccessDeniedException;
@@ -66,6 +67,8 @@ public class GouvernanceService {
 
     private final ProfileVisibilityService visibility;
 
+    private final AssignmentGuardService assignmentGuard;
+
     private static final String SA_PREFIX = "[SA] ";
 
     public GouvernanceService(SecurityUtils securityUtils, 
@@ -82,7 +85,8 @@ public class GouvernanceService {
         ProfileRoleMappingRepository roleMappingRepository,
         UserScopeService userScope,
         SodRuleRepository sodRuleRepository,
-        ProfileVisibilityService visibility) {
+        ProfileVisibilityService visibility,
+        AssignmentGuardService assignmentGuard) {
         this.securityUtils = securityUtils;
         this.auditService = auditService;
         this.organizationRepository = organizationRepository;
@@ -98,6 +102,7 @@ public class GouvernanceService {
         this.userScope = userScope;
         this.sodRuleRepository = sodRuleRepository;
         this.visibility = visibility;
+        this.assignmentGuard = assignmentGuard;
     }
 
     @Transactional
@@ -113,7 +118,7 @@ public class GouvernanceService {
             throw new ResourceNotFoundException("Utilisateur introuvable : " + req.userUuid());
         }
 
-        policyService.assertSoDAllowed(req.userUuid(), req.profileId());  
+        assignmentGuard.assertAllowed(req.userUuid(), req.profileId(), null); // profils puis rôles
 
         // Organisations racines du demandeur (sous-groupes inclus), résolues AVANT toute écriture : avant, un groupe
         // sans Organization levait une exception après l'enregistrement de la demande, qui restait en base sans gate.
@@ -138,7 +143,8 @@ public class GouvernanceService {
             gateRepository.save(gate);
         }
 
-        auditService.log("REQUEST_ACCESS", req.userUuid(), Map.of("accessRequestId", saved.getId().toString(), "gateCount", orgIds.size()));
+        UserRepresentation user = userScope.findUser(req.userUuid()).get();
+        auditService.log("REQUEST_ACCESS", req.userUuid(), user.getUsername(), Map.of("accessRequestId", saved.getId().toString(), "gateCount", orgIds.size()));
         return toDto(saved);
     }
 
@@ -146,7 +152,7 @@ public class GouvernanceService {
     public AccessRequestDto approve(UUID requestId, String comment) {
         AccessRequest request = findRequestOrThrow(requestId);
         requireDecidable(request);
-        policyService.assertSoDAllowed(request.getUserUuid(), request.getProfileId());
+        assignmentGuard.assertAllowed(request.getUserUuid(), request.getProfileId(), null); // profils puis rôles
         List<AccessRequestGate> gates = gateRepository.findByAccessRequestId(requestId);
 
         if (securityUtils.isSuperAdmin()) {
@@ -188,12 +194,11 @@ public class GouvernanceService {
             request.setStatus(AccessRequestStatus.REJECTED);
             request.setDecidedAt(Instant.now());
         } else if (allDecided) {
-            SodCheckResult sod = policyService.checkSoD(request.getUserUuid(), request.getProfileId());
+            SodCheckResult sod = assignmentGuard.check(request.getUserUuid(), request.getProfileId(), null); // profils puis rôles, avant tout provisionnement
             
             if (sod.result().equals("REJECTED")) {
                 request.setStatus(AccessRequestStatus.REJECTED);
             } else {
-                policyService.assertSoDAllowed(request.getUserUuid(), request.getProfileId());
                 provisionProfile(request); // assigne les rôles, lignes UserProfileAssignment, recomputeMfa
                 request.setStatus(AccessRequestStatus.PROVISIONED);
             }
@@ -253,8 +258,10 @@ public class GouvernanceService {
         request.setDecidedAt(Instant.now());
         accessRequestRepository.save(request);
 
-        auditService.log("REJECT_ACCESS_REQUEST", request.getUserUuid(),
-            Map.of("accessRequestId", requestId.toString(), "comment", comment));
+        userScope.findUser(request.getUserUuid()).ifPresent(user -> {
+            auditService.log("REJECT_ACCESS_REQUEST", request.getUserUuid(), user.getUsername(), 
+                Map.of("accessRequestId", requestId.toString(), "comment", comment));
+        });
 
         return toDto(request, gates);
     }
@@ -303,8 +310,7 @@ public class GouvernanceService {
             ? ProfileVisibilityService.OWNER_SUPERADMIN : ProfileVisibilityService.OWNER_ADMIN);
         BusinessProfile saved = businessProfileRepository.save(profile);
 
-        auditService.log("CREATE_PROFILE", String.valueOf(profile.getId()),
-            Map.of("profileId", saved.getId().toString(), "name", saved.getName()));
+        auditService.log("CREATE_PROFILE", null, null, Map.of("profileId", saved.getId().toString(), "name", saved.getName()));
         return toProfileDto(saved);
     }
 
@@ -318,7 +324,9 @@ public class GouvernanceService {
         if (req.mfaRequired() != null) profile.setMfaRequired(req.mfaRequired());
         BusinessProfile saved = businessProfileRepository.save(profile);
 
-        auditService.log("UPDATE_PROFILE", String.valueOf(id), Map.of("profileId", id.toString()));
+        userScope.findUser(String.valueOf(id)).ifPresent(user -> {
+            auditService.log("UPDATE_PROFILE", String.valueOf(id), user.getUsername(), Map.of("profileId", id.toString()));
+        });
         return toProfileDto(saved);
     }
 
@@ -336,7 +344,9 @@ public class GouvernanceService {
         roleMappingRepository.deleteAll(roleMappingRepository.findByProfileId(id));
         sodRuleRepository.deleteAll(sodRuleRepository.findAllInvolvingProfile(id));
         businessProfileRepository.deleteById(id);
-        auditService.log("DELETE_PROFILE", String.valueOf(id), Map.of("profileId", id.toString()));
+        userScope.findUser(String.valueOf(id)).ifPresent(user -> {
+            auditService.log("DELETE_PROFILE", String.valueOf(id), user.getUsername(), Map.of("profileId", id.toString()));
+        });
     }
 
     private BusinessProfile findVisibleProfileOrThrow(UUID id) {
@@ -377,7 +387,7 @@ public class GouvernanceService {
         mapping.setRoleName(req.roleName());
         ProfileRoleMapping saved = roleMappingRepository.save(mapping);
 
-        auditService.log("CREATE_ROLE_MAPPING", String.valueOf(profileId),
+        auditService.log("CREATE_ROLE_MAPPING", null, null,
             Map.of("profileId", profileId.toString(), "clientUuid", req.clientUuid(), "roleName", req.roleName()));
         return toMappingDto(saved);
     }
@@ -391,7 +401,7 @@ public class GouvernanceService {
         findVisibleProfileOrThrow(mapping.getProfileId()); // 404 propre si le profil associé n'est pas visible
         roleMappingRepository.deleteById(mappingId);
 
-        auditService.log("DELETE_ROLE_MAPPING", String.valueOf(mappingId),
+        auditService.log("DELETE_ROLE_MAPPING", null, null,
             Map.of("mappingId", mappingId.toString(), "profileId", mapping.getProfileId().toString()));
     }
 
@@ -421,13 +431,19 @@ public class GouvernanceService {
             try {
                 policyService.recomputeMfa(request.getUserUuid());
             } catch (Exception e) {
-                auditService.log("RECOMPUTE_MFA_FAILED", request.getUserUuid(),
-                    Map.of("accessRequestId", request.getId().toString(), "error", String.valueOf(e.getMessage())));
+                userScope.findUser(request.getUserUuid()).ifPresent(user -> {
+                    auditService.log("RECOMPUTE_MFA_FAILED", request.getUserUuid(), user.getUsername(),
+                        Map.of("accessRequestId", request.getId().toString(), "error", String.valueOf(e.getMessage())));
+                });
+                
             }
         }
 
-        auditService.log("ASSIGN_PROFILE", String.valueOf(profile.getId()),
-            Map.of("accessRequestId", request.getId().toString(), "userUuid", request.getUserUuid(), "profileId", request.getProfileId().toString()));
+        userScope.findUser(request.getUserUuid()).ifPresent(user -> {
+            auditService.log("ASSIGN_PROFILE", request.getUserUuid(), user.getUsername(),
+                Map.of("accessRequestId", request.getId().toString(), "profileId", request.getProfileId().toString()));
+        });
+        
     }
 
     // Une demande déjà PROVISIONED / REJECTED ne se rejoue pas (sinon une ré-approbation, vue comme "profil déjà actif"
