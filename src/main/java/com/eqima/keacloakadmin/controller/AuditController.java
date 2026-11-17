@@ -2,15 +2,12 @@ package com.eqima.keacloakadmin.controller;
 
 import com.eqima.keacloakadmin.models.dto.AuditEventDto;
 import com.eqima.keacloakadmin.models.dto.PagedResult;
-import com.eqima.keacloakadmin.models.request.AuditEventRequest;
 import com.eqima.keacloakadmin.service.AuditService;
 
 import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.HttpStatus;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.validation.Valid;
 import java.time.Instant;
 import java.util.UUID;
 

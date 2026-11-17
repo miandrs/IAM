@@ -36,6 +36,7 @@ public class AuditEvent {
     private  String username;
 
     private String targetUserUuid; // nullable — not every event targets a user
+    private String targetUsername;
 
     @Convert(converter = JsonMapConverter.class)
     @Column(columnDefinition = "TEXT")

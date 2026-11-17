@@ -58,23 +58,25 @@ public class AuditService {
         this.keycloak = keycloak;
     }
 
-    public AuditEvent log(String eventType, String targetUserUuid, Map<String, Object> details) {
+    public AuditEvent log(String eventType, String targetUserUuid, String targetUsername, Map<String, Object> details) {
         AuditEvent event = new AuditEvent();
         event.setEventType(eventType);
         event.setActorUuid(securityUtils.currentUserId());   // bean injecté, plus de new SecurityUtils()
         event.setUsername(securityUtils.username());
         event.setTargetUserUuid(targetUserUuid);
+        event.setTargetUsername(targetUsername);
         event.setDetails(details);
         return repository.save(event);
     }
 
     // Pour les tâches planifiées : il n'y a pas de JWT, log() échouerait. Acteur fixe "SYSTEM".
-    public AuditEvent logSystem(String eventType, String targetUserUuid, Map<String, Object> details) {
+    public AuditEvent logSystem(String eventType, String targetUserUuid, String targetUsername, Map<String, Object> details) {
         AuditEvent event = new AuditEvent();
         event.setEventType(eventType);
         event.setActorUuid("SYSTEM");
         event.setUsername("system");
         event.setTargetUserUuid(targetUserUuid);
+        event.setTargetUsername(targetUsername);
         event.setDetails(details);
         return repository.save(event);
     }
