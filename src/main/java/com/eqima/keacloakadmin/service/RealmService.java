@@ -12,7 +12,6 @@ import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -22,8 +21,6 @@ import com.eqima.keacloakadmin.models.entity.KeycloakClient;
 import com.eqima.keacloakadmin.models.entity.KeycloakUser;
 import com.eqima.keacloakadmin.models.request.CreateClientRequest;
 import com.eqima.keacloakadmin.models.request.CreateRealmRequest;
-import com.eqima.keacloakadmin.models.request.RealmRequest;
-import com.eqima.keacloakadmin.util.SecurityUtils;
 @Service
 public class RealmService {
     private final Keycloak keycloak;
@@ -37,19 +34,20 @@ public class RealmService {
 
     private final AuditService auditService;
 
-    @Autowired
     private EncryptionService encryptionService;
 
     public RealmService(
         ClientService clientService, 
         UserService userService,  
         @Qualifier("keycloakAdmin") Keycloak keycloakAdmin,
-        AuditService auditService
+        AuditService auditService,
+        EncryptionService encryptionService
     ) {
         this.keycloak = keycloakAdmin;
         this.clientService = clientService;
         this.userService = userService;
         this.auditService = auditService;
+        this.encryptionService = encryptionService;
     }
 
     private RealmsResource realms() {
@@ -116,7 +114,7 @@ public class RealmService {
 
         userService.mysqlSaveKeycloakUser(userMysql);
 
-        auditService.log("CREATE_REALM",  null, Map.of("realmName", realmRequest.realm()));
+        auditService.log("CREATE_REALM", String.valueOf(userMysql.getId()), userMysql.getUsername(), Map.of("realmName", realmRequest.realm()));
 
         return realmRequest.realm();
     }
