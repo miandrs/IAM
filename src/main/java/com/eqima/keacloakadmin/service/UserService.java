@@ -273,7 +273,7 @@ public class UserService {
             assignRealmRoles(userId, List.of("USER"));
         }
 
-        auditService.log("CREATE_USER",  null, Map.of("userId", userId, "username", createUserRequest.username()));
+        auditService.log("CREATE_USER", userId, createUserRequest.username(), Map.of("userId", userId, "username", createUserRequest.username()));
 
         return userId;
     }  
@@ -284,7 +284,7 @@ public class UserService {
         credential.setTemporary(temporary);
 
         users().get(userId).resetPassword(credential);
-        auditService.log("RESET_PASSWORD",  null, Map.of("userId", userId));
+        auditService.log("RESET_PASSWORD", userId, users(keycloak,realm).get(userId).toRepresentation().getUsername(), Map.of("userId", userId));
     } 
     public UserDTO patchUser(String userId, CreateUserRequest createUserRequest){
         if (!securityUtils.isSuperAdmin()) {
@@ -302,14 +302,14 @@ public class UserService {
         if(createUserRequest.groups()!=null && !createUserRequest.groups().isEmpty()){
             assignGroupsByName(userId, createUserRequest.groups());
         }
-        auditService.log("PATCH_USER",  null, Map.of("userId", userId, "username", createUserRequest.username()));
+        auditService.log("PATCH_USER", userId, createUserRequest.username(), Map.of("userId", userId, "username", createUserRequest.username()));
         return getUserById(userId);
     }
     public void requiredActionUpdatePassword(String userId, List<String> requiredActions){
         UserRepresentation user = users().get(userId).toRepresentation();
         user.setRequiredActions(requiredActions.stream().map(RequiredActions::fromString).map(RequiredActions::getAction).toList());
         users().get(userId).update(user);
-        auditService.log("UPDATE_REQUIRED_ACTIONS",  null, Map.of("userId", userId, "requiredActions", requiredActions.toString()));
+        auditService.log("UPDATE_REQUIRED_ACTIONS", userId, user.getUsername(), Map.of("userId", userId, "requiredActions", requiredActions.toString()));
     }
     public void deleteRequiredAction(String userId, String requiredAction){
         UserRepresentation user = users().get(userId).toRepresentation();
@@ -318,25 +318,25 @@ public class UserService {
                 .toList();
         user.setRequiredActions(updatedActions);
         users().get(userId).update(user);
-        auditService.log("DELETE_REQUIRED_ACTION",  null, Map.of("userId", userId, "requiredAction", requiredAction));
+        auditService.log("DELETE_REQUIRED_ACTION", userId, user.getUsername(), Map.of("userId", userId, "requiredAction", requiredAction));
     }
     public UserDTO disableOrEnableUser(String userId, boolean enabled){
         UserRepresentation user = users().get(userId).toRepresentation();
         user.setEnabled(enabled);
         users().get(userId).update(user);
-        auditService.log("UPDATE_USER_STATUS",  null, Map.of("userId", userId, "enabled", enabled));
+        auditService.log("UPDATE_USER_STATUS", userId, user.getUsername(), Map.of("userId", userId, "enabled", enabled));
         return getUserById(userId);
     }
     public void sessionRevoke(String userId){
         users().get(userId).logout();
-        auditService.log("REVOKE_USER_SESSION",  null, Map.of("userId", userId));
+        auditService.log("REVOKE_USER_SESSION", userId, users().get(userId).toRepresentation().getUsername(), Map.of("userId", userId));
     }
     
     public void sessionRevokeAll(){
         List<String> roles = getUserRoles();
         if (roles.contains("SUPERADMIN")) {
             allUsers().forEach(user -> users().get(user.getId()).logout());
-            auditService.log("REVOKE_ALL_USER_SESSIONS", securityUtils.currentUserId(), Map.of("scope", "realm"));
+            auditService.log("REVOKE_ALL_USER_SESSIONS", securityUtils.currentUserId(), users().get(securityUtils.currentUserId()).toRepresentation().getUsername(), Map.of("scope", "realm"));
             return;
         }
 
@@ -352,6 +352,7 @@ public class UserService {
         members.forEach(user -> users().get(user.getId()).logout());
 
         auditService.log("REVOKE_ALL_USER_SESSIONS", securityUtils.currentUserId(),
+            users().get(securityUtils.currentUserId()).toRepresentation().getUsername(),
             Map.of("scope", "group", "groupName", groupName, "userCount", members.size()));
     }
 
@@ -422,7 +423,7 @@ public class UserService {
 
             users().get(userId).joinGroup(groupOpt.get().getId());
         }
-        auditService.log("ASSIGN_GROUPS_TO_USER",  null, Map.of("userId", userId, "groupNames", groupNames.toString()));
+        auditService.log("ASSIGN_GROUPS_TO_USER",  userId, users().get(userId).toRepresentation().getUsername(), Map.of("userId", userId, "groupNames", groupNames.toString()));
     }
     private void assignRealmRoles(String userId, List<String> roleNames) {
         List<RoleRepresentation> rolesToAssign = keycloak.realm(realm)
@@ -433,7 +434,7 @@ public class UserService {
                 .toList();
 
         users().get(userId).roles().realmLevel().add(rolesToAssign);
-        auditService.log("ASSIGN_REALM_ROLES_TO_USER",  null, Map.of("userId", userId, "roleNames", roleNames.toString()));
+        auditService.log("ASSIGN_REALM_ROLES_TO_USER", userId, users().get(userId).toRepresentation().getUsername(), Map.of("userId", userId, "roleNames", roleNames.toString()));
     }
 
 //Use specific keycloak connection
@@ -461,7 +462,7 @@ public class UserService {
             assignGroupsByName(userId, createUserRequest.groups(),keycloak);
         }
 
-        auditService.log("CREATE_USER",  null, Map.of("userId", userId, "username", createUserRequest.username()));
+        auditService.log("CREATE_USER", userId, users(keycloak,realm).get(userId).toRepresentation().getUsername(), Map.of("userId", userId, "username", createUserRequest.username()));
         return userId;
     }
     public void resetPassword(String userId, String password, boolean temporary, Keycloak keycloak, String realm){
@@ -471,7 +472,7 @@ public class UserService {
         credential.setTemporary(temporary);
 
         users(keycloak,realm).get(userId).resetPassword(credential);
-        auditService.log("RESET_PASSWORD",  null, Map.of("userId", userId));
+        auditService.log("RESET_PASSWORD", userId, users(keycloak,realm).get(userId).toRepresentation().getUsername(), Map.of("userId", userId));
     }
     private void assignGroupsByName(String userId, List<String> groupNames,Keycloak keycloak) {
 
@@ -493,16 +494,16 @@ public class UserService {
 
             users(keycloak,realm).get(userId).joinGroup(groupOpt.get().getId());
         }
-        auditService.log("ASSIGN_GROUPS_TO_USER",  null, Map.of("userId", userId, "groupNames", groupNames.toString()));
+        auditService.log("ASSIGN_GROUPS_TO_USER", userId, users(keycloak,realm).get(userId).toRepresentation().getUsername(), Map.of("userId", userId, "groupNames", groupNames.toString()));
     }
     
     public KeycloakUser mysqlSaveKeycloakUser(KeycloakUser user){
-        auditService.log("CREATE_USER",  null, Map.of("userId", user.getId(), "username", user.getUsername()));
+        auditService.log("CREATE_USER", String.valueOf(user.getId()), users(keycloak,realm).get(String.valueOf(user.getId())).toRepresentation().getUsername(), Map.of("userId", user.getId(), "username", user.getUsername()));
         return this.keycloakUserRepository.save(user);
     }
 
     public Optional<KeycloakUser> mysqlGetKeycloakUserById(UUID id){
-        auditService.log("GET_USER",  null, Map.of("userId", id));
+        auditService.log("GET_USER", String.valueOf(id), users(keycloak,realm).get(String.valueOf(id)).toRepresentation().getUsername(), Map.of("userId", id));
         return this.keycloakUserRepository.findById(id);
     }
 
@@ -528,7 +529,7 @@ public class UserService {
                 throw new RuntimeException("Failed to delete user: " + r.getStatus());
             }
         }
-        auditService.log("DELETE_USER",  null, Map.of("userId", userId));
+        auditService.log("DELETE_USER", userId, users(keycloak,realm).get(userId).toRepresentation().getUsername(), Map.of("userId", userId));
         closeLocalReferences(userId);
     }
 
@@ -562,7 +563,7 @@ public class UserService {
             requests++;
         }
         if (assignments > 0 || requests > 0) {
-            auditService.log("CLEAN_DELETED_USER_REFERENCES", userId,
+            auditService.log("CLEAN_DELETED_USER_REFERENCES", userId, users(keycloak,realm).get(userId).toRepresentation().getUsername(),
                 Details.of("assignmentsClosed", assignments, "requestsRejected", requests));
         }
     }
