@@ -56,7 +56,7 @@ public class OrganizationService {
         org.setActive(true);
         Organization saved = organizationRepository.save(org);
 
-        auditService.log("CREATE_ORGANIZATION", null,
+        auditService.log("CREATE_ORGANIZATION", null, null,
             Map.of("organizationId", saved.getId().toString(), "keycloakGroupId", group.getId(), "name", group.getName()));
 
         return toDto(saved, group.getName());
@@ -116,7 +116,7 @@ public class OrganizationService {
             groupService.setGroupMembersEnabled(saved.getKeycloakGroupId(), req.active());
         }
 
-        auditService.log("UPDATE_ORGANIZATION", null,
+        auditService.log("UPDATE_ORGANIZATION", null, null,
             Map.of("organizationId", id.toString(), "active", org.isActive()));
 
         return toDto(saved, resolveGroupName(org.getKeycloakGroupId()));
@@ -130,7 +130,7 @@ public class OrganizationService {
         Organization org = findOrgOrThrow(organizationId);
         keycloak.realm(realm).users().get(userId).joinGroup(org.getKeycloakGroupId());
 
-        auditService.log("ATTACH_USER_TO_ORGANIZATION", null,
+        auditService.log("ATTACH_USER_TO_ORGANIZATION", userId, keycloak.realm(realm).users().get(userId).toRepresentation().getUsername(),
             Map.of("organizationId", organizationId.toString(), "userId", userId));
     }
 
@@ -139,7 +139,7 @@ public class OrganizationService {
         Organization org = findOrgOrThrow(id);
         groupService.deleteGroup(org.getKeycloakGroupId()); // supprime aussi le vrai groupe Keycloak
         organizationRepository.delete(org);
-        auditService.log("DELETE_ORGANIZATION", null,
+        auditService.log("DELETE_ORGANIZATION", null, null,
             Map.of("organizationId", id.toString(), "keycloakGroupId", org.getKeycloakGroupId()));
     }
 
@@ -173,7 +173,7 @@ public class OrganizationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Organisation introuvable : " + id)));
         keycloak.realm(realm).users().get(userId).leaveGroup(groupId);
 
-        auditService.log("DETACH_USER_FROM_ORGANIZATION", userId,
+        auditService.log("DETACH_USER_FROM_ORGANIZATION", userId, keycloak.realm(realm).users().get(userId).toRepresentation().getUsername(),
             Map.of("organizationId", id.toString(), "userId", userId));
     }
 }
