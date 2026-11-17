@@ -44,6 +44,8 @@ public class PolicyService {
 
     private final ProfileVisibilityService visibility;
 
+    private final UserScopeService userScope;
+
     public PolicyService(
         UserProfileAssignmentRepository assignmentRepository,
         SodRuleRepository sodRuleRepository,
@@ -51,7 +53,8 @@ public class PolicyService {
         @Qualifier("keycloakClient") Keycloak keycloakClient,
         AuditService auditService,
         SecurityUtils securityUtils,
-        ProfileVisibilityService profileVisibilityService
+        ProfileVisibilityService profileVisibilityService,
+        UserScopeService userScopeService
     ) {
         this.assignmentRepository = assignmentRepository;
         this.sodRuleRepository = sodRuleRepository;
@@ -60,6 +63,7 @@ public class PolicyService {
         this.auditService = auditService;
         this.securityUtils = securityUtils;
         this.visibility = profileVisibilityService;
+        this.userScope = userScopeService;
     }
 
     // ═══════════════ SoD — vérification ═══════════════
@@ -160,7 +164,7 @@ public class PolicyService {
         rule.setReason(req.reason());
         SodRule saved = sodRuleRepository.save(rule);
 
-        auditService.log("CREATE_SOD_RULE", null,
+        auditService.log("CREATE_SOD_RULE", null, null,
             Map.of("profileId", profile.getId().toString(), "incompatibleProfileId", incompatible.getId().toString()));
 
         return new SodRuleDto(
@@ -178,7 +182,7 @@ public class PolicyService {
             .orElseThrow(() -> new ResourceNotFoundException("Règle SoD inexistante : " + id));
         sodRuleRepository.deleteById(id);
 
-        auditService.log("DELETE_SOD_RULE", null,
+        auditService.log("DELETE_SOD_RULE", null, null,
             Map.of("profileId", rule.getProfileId().toString(), "incompatibleProfileId", rule.getIncompatibleProfileId().toString()));
     }
 
@@ -221,7 +225,8 @@ public class PolicyService {
 
         applyRequiredAction(userUuid, mfaRequired);
 
-        auditService.log("RECOMPUTE_MFA", userUuid, Map.of("mfaRequired", mfaRequired));
+        String username = userScope.findUser(userUuid).map(UserRepresentation::getUsername).orElse(null);
+        auditService.log("RECOMPUTE_MFA", userUuid, username, Map.of("mfaRequired", mfaRequired));
 
         return new MfaRecomputeResult(mfaRequired);
     }

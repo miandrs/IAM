@@ -6,6 +6,7 @@ import com.eqima.keacloakadmin.models.dto.SodRuleDto;
 import com.eqima.keacloakadmin.models.entity.SodRule;
 import com.eqima.keacloakadmin.models.request.CreateSodRuleRequest;
 import com.eqima.keacloakadmin.models.request.SodCheckRequest;
+import com.eqima.keacloakadmin.service.AssignmentGuardService;
 import com.eqima.keacloakadmin.service.PolicyService;
 import com.eqima.keacloakadmin.service.UserScopeService;
 import com.eqima.keacloakadmin.util.SecurityUtils;
@@ -25,17 +26,22 @@ public class PolicyController {
 
     private final PolicyService policyService;
     private final UserScopeService userScope;
+    private final AssignmentGuardService assignmentGuard;
 
-    public PolicyController(PolicyService policyService, UserScopeService userScope) {
+    public PolicyController(PolicyService policyService, UserScopeService userScope,
+                            AssignmentGuardService assignmentGuard) {
         this.policyService = policyService;
         this.userScope = userScope;
+        this.assignmentGuard = assignmentGuard;
     }
 
     @PostMapping("/sod/check")
     public SodCheckResult checkSoD(@Valid @RequestBody SodCheckRequest request) {
         SecurityUtils securityUtils = new SecurityUtils();
         if (!securityUtils.currentUserId().equals(request.userUuid())) userScope.assertCanManage(request.userUuid());
-        policyService.assertSoDAllowed(request.userUuid(), request.requestedProfileId());
+        // même contrôle que lors d'une vraie attribution : SoD de profils PUIS SoD de rôles
+        // (règles de rôles manuelles + règles de profils dérivées). Rejet → ConflictException (409).
+        assignmentGuard.assertAllowed(request.userUuid(), request.requestedProfileId(), null);
         return new SodCheckResult("APPROVED", null);
     }
 
@@ -66,4 +72,4 @@ public class PolicyController {
     public List<Object> listAbacRules() {
         return policyService.listAbacRules();
     }
-}
+}
