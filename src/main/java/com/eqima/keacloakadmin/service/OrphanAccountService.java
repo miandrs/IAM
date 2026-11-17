@@ -265,6 +265,7 @@ public class OrphanAccountService {
         }
         OrphanType type = req.type();
         String targetUser = req.userUuid();
+        String targetUsername = userScope.findUser(targetUser).map(UserRepresentation::getUsername).orElse(null);
 
         String action = switch (type) {
             case NO_ORGANIZATION, ORGANIZATION_INACTIVE_OR_UNTRACKED -> {
@@ -326,7 +327,7 @@ public class OrphanAccountService {
             }
         };
 
-        auditService.log("ORPHAN_REMEDIATED", targetUser,
+        auditService.log("ORPHAN_REMEDIATED", targetUser, targetUsername,
             Details.of("type", type, "referenceId", req.referenceId(), "action", action));
         return new OrphanRemediationResultDto(type.name(), targetUser, req.referenceId(), action);
     }
