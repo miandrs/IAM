@@ -195,8 +195,8 @@ public class CertificationService {
 
         var details = Details.of("campaignId", saved.getId(), "name", name, "items", items.size(),
             "scopeOrganizationId", scopeOrgId, "dueAt", dueAt);
-        if (system) auditService.logSystem("START_CERTIFICATION", null, details);
-        else auditService.log("START_CERTIFICATION", null, details);
+        if (system) auditService.logSystem("START_CERTIFICATION", null, null, details);
+        else auditService.log("START_CERTIFICATION", null, null, details);
         return saved;
     }
 
@@ -308,7 +308,7 @@ public class CertificationService {
         itemRepository.save(item);
 
         auditService.log(decision == CertificationDecision.CERTIFIED ? "CERTIFY_ACCESS" : "REVOKE_ACCESS_CERTIFICATION",
-            item.getUserUuid(),
+            item.getUserUuid(), item.getUsernameSnapshot(),
             Details.of("campaignId", item.getCampaignId(), "itemId", item.getId(),
                 "assignmentId", item.getAssignmentId(), "profileId", item.getProfileId(), "comment", comment));
 
@@ -355,7 +355,7 @@ public class CertificationService {
         campaign.setClosedBy(me);
         campaignRepository.save(campaign);
 
-        auditService.log("CLOSE_CERTIFICATION", null,
+        auditService.log("CLOSE_CERTIFICATION", null, null,
             Details.of("campaignId", campaignId, "revokeUnreviewed", revokeUnreviewed));
         return toDto(campaign);
     }
@@ -378,7 +378,7 @@ public class CertificationService {
             c.setClosedAt(Instant.now());
             c.setClosedBy("SYSTEM");
             campaignRepository.save(c);
-            auditService.logSystem("CLOSE_CERTIFICATION", null,
+            auditService.logSystem("CLOSE_CERTIFICATION", null, null,
                 Details.of("campaignId", c.getId(), "reason", "OVERDUE", "expiredItems", expired));
         }
         return overdue.size();
