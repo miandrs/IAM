@@ -5,6 +5,9 @@ import com.eqima.keacloakadmin.models.request.ApprovalRequest;
 import com.eqima.keacloakadmin.models.request.CreateAccessRequestRequest;
 import com.eqima.keacloakadmin.models.request.RejectionRequest;
 import com.eqima.keacloakadmin.service.GouvernanceService;
+import com.eqima.keacloakadmin.util.ClientIpResolver;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -20,15 +23,17 @@ import java.util.UUID;
 public class AccessRequestController {
 
     private final GouvernanceService gouvernanceService;
+    private final ClientIpResolver clientIp;
 
-    public AccessRequestController(GouvernanceService gouvernanceService) {
+    public AccessRequestController(GouvernanceService gouvernanceService, ClientIpResolver clientIp) {
         this.gouvernanceService = gouvernanceService;
+        this.clientIp = clientIp;
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public AccessRequestDto create(@Valid @RequestBody CreateAccessRequestRequest req) {
-        return gouvernanceService.create(req);
+    public AccessRequestDto create(@Valid @RequestBody CreateAccessRequestRequest req, HttpServletRequest http) {
+        return gouvernanceService.create(req, clientIp.resolve(http));
     }
 
     @GetMapping
@@ -42,13 +47,13 @@ public class AccessRequestController {
     }
 
     @PostMapping("/{id}/approve")
-    public AccessRequestDto approve(@PathVariable UUID id, @RequestBody(required = false) ApprovalRequest req) {
+    public AccessRequestDto approve(@PathVariable UUID id, @RequestBody(required = false) ApprovalRequest req, HttpServletRequest http) {
         String comment = req != null ? req.comment() : null;
-        return gouvernanceService.approve(id, comment);
+        return gouvernanceService.approve(id, comment, clientIp.resolve(http));
     }
 
     @PostMapping("/{id}/reject")
-    public AccessRequestDto reject(@PathVariable UUID id, @Valid @RequestBody RejectionRequest req) {
-        return gouvernanceService.reject(id, req.comment());
+    public AccessRequestDto reject(@PathVariable UUID id, @Valid @RequestBody RejectionRequest req, HttpServletRequest http) {
+        return gouvernanceService.reject(id, req.comment(), clientIp.resolve(http));
     }
-}
+}

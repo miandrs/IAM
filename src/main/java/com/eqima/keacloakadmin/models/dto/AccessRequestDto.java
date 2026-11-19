@@ -7,5 +7,7 @@ import java.util.UUID;
 public record AccessRequestDto(
     UUID id, String userUuid, String username, UUID profileId, String profileName,
     String justification, String status, Instant createdAt, Instant decidedAt,
+    String requestedBy, String requestedByUsername, String requesterIp,
+    AccessRequestOriginDto origin,
     List<AccessRequestGateDto> gates
 ) {}

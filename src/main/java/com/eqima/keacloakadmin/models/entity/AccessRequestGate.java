@@ -34,4 +34,5 @@ public class AccessRequestGate {
     private String approverUuid;
     private String comment;
     private Instant decidedAt;
+    @Column(length = 45) private String approverIp; // IP de l'approbateur / rejeteur
 }

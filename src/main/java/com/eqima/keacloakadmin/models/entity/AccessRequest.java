@@ -1,9 +1,13 @@
 package com.eqima.keacloakadmin.models.entity;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
+import com.eqima.keacloakadmin.util.JsonMapConverter;
+
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -35,4 +39,15 @@ public class AccessRequest {
     private AccessRequestStatus status; // PENDING | PROVISIONED | REJECTED
     @Column(nullable = false, updatable = false) private Instant createdAt;
     private Instant decidedAt;
+
+    // ── Traçabilité (figée à la création, jamais modifiée ensuite) ──
+    @Column(updatable = false) private String requestedBy;          // sub Keycloak de qui a soumis la demande (≠ userUuid si pour un tiers)
+    @Column(updatable = false) private String requestedByUsername;
+    @Column(length = 45, updatable = false) private String requesterIp; // IP de l'auteur de la soumission
+
+    // Origine au moment de la demande : organisations (tenants), produits, rôles, profil.
+    // Instantané : les mappings du profil peuvent changer ensuite sans réécrire l'historique.
+    @Convert(converter = JsonMapConverter.class)
+    @Column(columnDefinition = "TEXT", updatable = false)
+    private Map<String, Object> origin;
 }
