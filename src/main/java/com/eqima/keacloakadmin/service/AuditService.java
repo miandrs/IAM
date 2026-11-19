@@ -184,6 +184,6 @@ public class AuditService {
 
     private AuditEventDto toDto(AuditEvent e) {
         return new AuditEventDto(e.getId(), e.getEventType(), e.getActorUuid(), e.getUsername(),
-            e.getTargetUserUuid(), e.getDetails(), e.getCreatedAt());
+            e.getTargetUserUuid(), e.getTargetUsername(), e.getDetails(), e.getCreatedAt());
     }
 }

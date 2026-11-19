@@ -10,6 +10,7 @@ public record AuditEventDto(
     String actorUuid,
     String username,
     String targetUserUuid,
+    String targetUsername,
     Map<String, Object> details,
     Instant createdAt
 ) {}

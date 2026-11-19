@@ -1,13 +1,17 @@
 package com.eqima.keacloakadmin.service;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
@@ -21,6 +25,7 @@ import com.eqima.keacloakadmin.exception.ConflictException;
 import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
 import com.eqima.keacloakadmin.models.dto.AccessRequestDto;
 import com.eqima.keacloakadmin.models.dto.AccessRequestGateDto;
+import com.eqima.keacloakadmin.models.dto.AccessRequestOriginDto;
 import com.eqima.keacloakadmin.models.dto.BusinessProfileDto;
 import com.eqima.keacloakadmin.models.dto.ProfileRoleMappingDto;
 import com.eqima.keacloakadmin.models.dto.SodCheckResult;
@@ -70,6 +75,7 @@ public class GouvernanceService {
     private final AssignmentGuardService assignmentGuard;
 
     private static final String SA_PREFIX = "[SA] ";
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     public GouvernanceService(SecurityUtils securityUtils, 
         AuditService auditService, 
@@ -106,7 +112,7 @@ public class GouvernanceService {
     }
 
     @Transactional
-    public AccessRequestDto create(CreateAccessRequestRequest req) {
+    public AccessRequestDto create(CreateAccessRequestRequest req, String clientIp) {
         String me = securityUtils.currentUserId();
         if (!me.equals(req.userUuid())) {
             // demande pour un tiers : réservé à un ADMIN / SUPERADMIN qui gère ce compte
@@ -133,6 +139,11 @@ public class GouvernanceService {
         request.setJustification(req.justification());
         request.setStatus(AccessRequestStatus.PENDING);
         request.setCreatedAt(Instant.now());
+        // traçabilité : qui a soumis, depuis quelle IP, et l'origine (tenants / produits / rôles) figée à cet instant
+        request.setRequestedBy(me);
+        request.setRequestedByUsername(securityUtils.username());
+        request.setRequesterIp(clientIp);
+        request.setOrigin(MAPPER.convertValue(buildOrigin(req.profileId(), orgIds), new TypeReference<Map<String, Object>>() {}));
         AccessRequest saved = accessRequestRepository.save(request);
 
         for (UUID orgId : orgIds) {
@@ -144,12 +155,14 @@ public class GouvernanceService {
         }
 
         UserRepresentation user = userScope.findUser(req.userUuid()).get();
-        auditService.log("REQUEST_ACCESS", req.userUuid(), user.getUsername(), Map.of("accessRequestId", saved.getId().toString(), "gateCount", orgIds.size()));
+        auditService.log("REQUEST_ACCESS", req.userUuid(), user.getUsername(),
+            auditDetails(clientIp, "accessRequestId", saved.getId().toString(), "profileId", req.profileId().toString(),
+                "gateCount", orgIds.size(), "requestedBy", me));
         return toDto(saved);
     }
 
     @Transactional
-    public AccessRequestDto approve(UUID requestId, String comment) {
+    public AccessRequestDto approve(UUID requestId, String comment, String clientIp) {
         AccessRequest request = findRequestOrThrow(requestId);
         requireDecidable(request);
         assignmentGuard.assertAllowed(request.getUserUuid(), request.getProfileId(), null); // profils puis rôles
@@ -157,7 +170,7 @@ public class GouvernanceService {
 
         if (securityUtils.isSuperAdmin()) {
             gates.stream().filter(g -> g.getDecision().equals("PENDING"))
-                .forEach(g -> decide(g, "APPROVED", securityUtils.currentUserId(), comment));
+                .forEach(g -> decide(g, "APPROVED", securityUtils.currentUserId(), comment, clientIp));
         } else if (securityUtils.isAdmin()) {
             Set<UUID> myOrgs = currentApproverOrgIds();
 
@@ -168,18 +181,23 @@ public class GouvernanceService {
             if (mine.isEmpty()) {
                 throw new AccessDeniedException("Aucun gate de cette demande ne relève de vos organisations.");
             }
-            mine.forEach(g -> decide(g, "APPROVED", securityUtils.currentUserId(), comment));
+            mine.forEach(g -> decide(g, "APPROVED", securityUtils.currentUserId(), comment, clientIp));
         } else {
             throw new AccessDeniedException("Not allowed to approve access requests");
         }
 
+        userScope.findUser(request.getUserUuid()).ifPresent(user ->
+            auditService.log("APPROVE_ACCESS_REQUEST", request.getUserUuid(), user.getUsername(),
+                auditDetails(clientIp, "accessRequestId", requestId.toString(), "comment", comment)));
+
         return finalizeIfComplete(request, gates);
     }
 
-    private void decide(AccessRequestGate gate, String decision, String actorUuid, String comment) {
+    private void decide(AccessRequestGate gate, String decision, String actorUuid, String comment, String clientIp) {
         gate.setDecision(decision);
         gate.setApproverUuid(actorUuid);
         gate.setComment(comment);
+        gate.setApproverIp(clientIp);
         gate.setDecidedAt(Instant.now());
         gateRepository.save(gate);
     }
@@ -232,7 +250,7 @@ public class GouvernanceService {
         throw new AccessDeniedException("Not allowed to list access requests");
     }
 
-    public AccessRequestDto reject(UUID requestId, String comment) {
+    public AccessRequestDto reject(UUID requestId, String comment, String clientIp) {
         AccessRequest request = findRequestOrThrow(requestId);
         requireDecidable(request);
         List<AccessRequestGate> gates = gateRepository.findByAccessRequestId(requestId);
@@ -252,15 +270,15 @@ public class GouvernanceService {
             throw new AccessDeniedException("Not allowed to reject access requests");
         }
 
-        myPendingGates.forEach(g -> decide(g, "REJECTED", securityUtils.currentUserId(), comment));
+        myPendingGates.forEach(g -> decide(g, "REJECTED", securityUtils.currentUserId(), comment, clientIp));
 
         request.setStatus(AccessRequestStatus.REJECTED);
         request.setDecidedAt(Instant.now());
         accessRequestRepository.save(request);
 
         userScope.findUser(request.getUserUuid()).ifPresent(user -> {
-            auditService.log("REJECT_ACCESS_REQUEST", request.getUserUuid(), user.getUsername(), 
-                Map.of("accessRequestId", requestId.toString(), "comment", comment));
+            auditService.log("REJECT_ACCESS_REQUEST", request.getUserUuid(), user.getUsername(),
+                auditDetails(clientIp, "accessRequestId", requestId.toString(), "comment", comment));
         });
 
         return toDto(request, gates);
@@ -481,6 +499,10 @@ public class GouvernanceService {
             String.valueOf(request.getStatus()),
             request.getCreatedAt(),
             request.getDecidedAt(),
+            request.getRequestedBy(),
+            request.getRequestedByUsername(),
+            request.getRequesterIp(),
+            originOf(request, gates),
             gateDtos
         );
     }
@@ -500,17 +522,81 @@ public class GouvernanceService {
     }
 
     private AccessRequestGateDto toGateDto(AccessRequestGate gate) {
-        String orgName = organizationRepository.findById(gate.getOrganizationId())
-            .map(org -> resolveGroupNameSafe(org.getKeycloakGroupId()))
-            .orElse("(organisation introuvable)");
-
         return new AccessRequestGateDto(
             gate.getOrganizationId(),
-            orgName,
+            organizationName(gate.getOrganizationId()),
             gate.getDecision(),
             gate.getApproverUuid(),
-            gate.getComment()
+            gate.getComment(),
+            gate.getDecidedAt(),
+            gate.getApproverIp()
         );
+    }
+
+    private String organizationName(UUID organizationId) {
+        return organizationRepository.findById(organizationId)
+            .map(org -> resolveGroupNameSafe(org.getKeycloakGroupId()))
+            .orElse("(organisation introuvable)");
+    }
+
+    // ═══════════════ Origine & traçabilité ═══════════════
+
+    /**
+     * Origine d'une demande : organisations (tenants) du demandeur, profil, produits (clients Keycloak)
+     * et rôles visés par le profil. Calculée à la création et stockée telle quelle.
+     */
+    private AccessRequestOriginDto buildOrigin(UUID profileId, Collection<UUID> orgIds) {
+        List<AccessRequestOriginDto.Organization> orgs = orgIds.stream()
+            .map(id -> new AccessRequestOriginDto.Organization(id, organizationName(id)))
+            .toList();
+
+        List<ProfileRoleMapping> mappings = roleMappingRepository.findByProfileId(profileId);
+        Map<String, String> clientIds = new LinkedHashMap<>();
+        for (ProfileRoleMapping m : mappings) {
+            clientIds.computeIfAbsent(m.getClientUuid(), this::resolveClientIdSafe);
+        }
+
+        return new AccessRequestOriginDto(
+            orgs,
+            new AccessRequestOriginDto.Profile(profileId, resolveProfileNameSafe(profileId)),
+            clientIds.entrySet().stream()
+                .map(e -> new AccessRequestOriginDto.Product(e.getKey(), e.getValue())).toList(),
+            mappings.stream()
+                .map(m -> new AccessRequestOriginDto.Role(m.getClientUuid(), clientIds.get(m.getClientUuid()), m.getRoleName()))
+                .toList()
+        );
+    }
+
+    // instantané stocké si présent ; sinon (demandes antérieures à la traçabilité) on reconstitue l'état actuel
+    private AccessRequestOriginDto originOf(AccessRequest request, List<AccessRequestGate> gates) {
+        Map<String, Object> snapshot = request.getOrigin();
+        if (snapshot != null && !snapshot.isEmpty()) {
+            try {
+                return MAPPER.convertValue(snapshot, AccessRequestOriginDto.class);
+            } catch (IllegalArgumentException ignored) {
+                // instantané illisible : repli sur l'état actuel
+            }
+        }
+        return buildOrigin(request.getProfileId(),
+            gates.stream().map(AccessRequestGate::getOrganizationId).distinct().toList());
+    }
+
+    private String resolveClientIdSafe(String clientUuid) {
+        try {
+            return keycloak.realm(realmName).clients().get(clientUuid).toRepresentation().getClientId();
+        } catch (Exception e) {
+            return clientUuid;
+        }
+    }
+
+    // détails d'audit (clé, valeur, clé, valeur…) + IP ; les valeurs null sont omises (Map.of les refuse)
+    private static Map<String, Object> auditDetails(String clientIp, Object... keyValues) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < keyValues.length; i += 2) {
+            if (keyValues[i + 1] != null) details.put(String.valueOf(keyValues[i]), keyValues[i + 1]);
+        }
+        if (clientIp != null) details.put("ip", clientIp);
+        return details;
     }
 
     // même repli défensif que OrganizationService.resolveGroupName() — un groupe Keycloak
