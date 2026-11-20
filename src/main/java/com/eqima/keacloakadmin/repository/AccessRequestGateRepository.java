@@ -1,5 +1,6 @@
 package com.eqima.keacloakadmin.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -9,4 +10,5 @@ import com.eqima.keacloakadmin.models.entity.AccessRequestGate;
 
 public interface AccessRequestGateRepository extends JpaRepository<AccessRequestGate, UUID> {
     List<AccessRequestGate> findByAccessRequestId(UUID accessRequestId);
+    List<AccessRequestGate> findByAccessRequestIdIn(Collection<UUID> accessRequestIds);
 }
