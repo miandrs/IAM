@@ -1,6 +1,7 @@
 package com.eqima.keacloakadmin.service;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -9,6 +10,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,11 +28,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.eqima.keacloakadmin.exception.ConflictException;
+import com.eqima.keacloakadmin.exception.InvalidRequestException;
 import com.eqima.keacloakadmin.exception.ResourceNotFoundException;
 import com.eqima.keacloakadmin.models.dto.AccessRequestDto;
 import com.eqima.keacloakadmin.models.dto.AccessRequestGateDto;
 import com.eqima.keacloakadmin.models.dto.AccessRequestOriginDto;
 import com.eqima.keacloakadmin.models.dto.BusinessProfileDto;
+import com.eqima.keacloakadmin.models.dto.PagedResult;
 import com.eqima.keacloakadmin.models.dto.ProfileRoleMappingDto;
 import com.eqima.keacloakadmin.models.dto.SodCheckResult;
 import com.eqima.keacloakadmin.models.entity.AccessRequest;
@@ -44,6 +52,7 @@ import com.eqima.keacloakadmin.models.request.CreateRoleMappingRequest;
 import com.eqima.keacloakadmin.models.request.UpdateBusinessProfileRequest;
 import com.eqima.keacloakadmin.repository.AccessRequestGateRepository;
 import com.eqima.keacloakadmin.repository.AccessRequestRepository;
+import com.eqima.keacloakadmin.repository.AccessRequestSpecifications;
 import com.eqima.keacloakadmin.repository.BusinessProfileRepository;
 import com.eqima.keacloakadmin.repository.OrganizationRepository;
 import com.eqima.keacloakadmin.repository.ProfileRoleMappingRepository;
@@ -285,7 +294,55 @@ public class GouvernanceService {
     }
 
     public AccessRequestDto getById(UUID requestId) {
-        return toDto(findRequestOrThrow(requestId));
+        AccessRequest request = findRequestOrThrow(requestId);
+        // même règle de visibilité que l'historique ; 404 (et non 403) pour ne pas révéler l'existence de la demande
+        if (!accessRequestRepository.exists(visibleSpec().and((root, query, cb) -> cb.equal(root.get("id"), requestId)))) {
+            throw new ResourceNotFoundException("Demande d'accès introuvable : " + requestId);
+        }
+        return toDto(request);
+    }
+
+    // ═══════════════ Historique ═══════════════
+
+    // SUPERADMIN : tout ; ADMIN : demandes de ses organisations + les siennes ; utilisateur simple : les siennes
+    private Specification<AccessRequest> visibleSpec() {
+        if (securityUtils.isSuperAdmin()) return (root, query, cb) -> cb.conjunction(); // aucune restriction
+        String me = securityUtils.currentUserId();
+        Set<UUID> orgIds = securityUtils.isAdmin() ? currentApproverOrgIds() : Set.of();
+        return AccessRequestSpecifications.visibleTo(me, orgIds);
+    }
+
+    public PagedResult<AccessRequestDto> history(AccessRequestStatus status, String userUuid, UUID profileId,
+                                                 Instant from, Instant to, int page, int size) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new InvalidRequestException("La date de début doit précéder la date de fin.");
+        }
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+
+        Specification<AccessRequest> spec = visibleSpec()
+            .and(AccessRequestSpecifications.hasStatus(status))
+            .and(AccessRequestSpecifications.forUser(userUuid))
+            .and(AccessRequestSpecifications.forProfile(profileId))
+            .and(AccessRequestSpecifications.createdFrom(from))
+            .and(AccessRequestSpecifications.createdTo(to));
+
+        Page<AccessRequest> result = accessRequestRepository.findAll(spec,
+            PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt")));
+
+        // un seul aller-retour pour les gates de la page, et des caches pour les appels Keycloak répétés
+        List<UUID> ids = result.getContent().stream().map(AccessRequest::getId).toList();
+        Map<UUID, List<AccessRequestGate>> gatesByRequest = ids.isEmpty() ? Map.of()
+            : gateRepository.findByAccessRequestIdIn(ids).stream()
+                .collect(Collectors.groupingBy(AccessRequestGate::getAccessRequestId));
+        Lookup lookup = new Lookup();
+
+        List<AccessRequestDto> content = result.getContent().stream()
+            .map(r -> toDto(r, gatesByRequest.getOrDefault(r.getId(), List.of()), lookup))
+            .toList();
+
+        return new PagedResult<>(content, result.getNumber(), result.getSize(),
+            result.getTotalElements(), result.getTotalPages());
     }
 
     // IDs Organization de l'appelant courant (ADMIN) : noms du token -> groupes Keycloak -> Organization
@@ -484,15 +541,25 @@ public class GouvernanceService {
         return toDto(request, gateRepository.findByAccessRequestId(request.getId()));
     }
 
+    // noms déjà résolus pendant un même appel (évite de rappeler Keycloak pour chaque ligne d'une page)
+    private static final class Lookup {
+        final Map<String, String> users = new HashMap<>();
+        final Map<UUID, String> organizations = new HashMap<>();
+    }
+
     private AccessRequestDto toDto(AccessRequest request, List<AccessRequestGate> gates) {
+        return toDto(request, gates, new Lookup());
+    }
+
+    private AccessRequestDto toDto(AccessRequest request, List<AccessRequestGate> gates, Lookup lookup) {
         List<AccessRequestGateDto> gateDtos = gates.stream()
-            .map(this::toGateDto)
+            .map(g -> toGateDto(g, lookup))
             .toList();
 
         return new AccessRequestDto(
             request.getId(),
             request.getUserUuid(),
-            resolveUsernameSafe(request.getUserUuid()),
+            lookup.users.computeIfAbsent(request.getUserUuid(), this::resolveUsernameSafe),
             request.getProfileId(),
             resolveProfileNameSafe(request.getProfileId()),
             request.getJustification(),
@@ -502,7 +569,7 @@ public class GouvernanceService {
             request.getRequestedBy(),
             request.getRequestedByUsername(),
             request.getRequesterIp(),
-            originOf(request, gates),
+            originOf(request, gates, lookup),
             gateDtos
         );
     }
@@ -521,10 +588,10 @@ public class GouvernanceService {
             .orElse("(profil introuvable)");
     }
 
-    private AccessRequestGateDto toGateDto(AccessRequestGate gate) {
+    private AccessRequestGateDto toGateDto(AccessRequestGate gate, Lookup lookup) {
         return new AccessRequestGateDto(
             gate.getOrganizationId(),
-            organizationName(gate.getOrganizationId()),
+            lookup.organizations.computeIfAbsent(gate.getOrganizationId(), this::organizationName),
             gate.getDecision(),
             gate.getApproverUuid(),
             gate.getComment(),
@@ -546,8 +613,12 @@ public class GouvernanceService {
      * et rôles visés par le profil. Calculée à la création et stockée telle quelle.
      */
     private AccessRequestOriginDto buildOrigin(UUID profileId, Collection<UUID> orgIds) {
+        return buildOrigin(profileId, orgIds, new Lookup());
+    }
+
+    private AccessRequestOriginDto buildOrigin(UUID profileId, Collection<UUID> orgIds, Lookup lookup) {
         List<AccessRequestOriginDto.Organization> orgs = orgIds.stream()
-            .map(id -> new AccessRequestOriginDto.Organization(id, organizationName(id)))
+            .map(id -> new AccessRequestOriginDto.Organization(id, lookup.organizations.computeIfAbsent(id, this::organizationName)))
             .toList();
 
         List<ProfileRoleMapping> mappings = roleMappingRepository.findByProfileId(profileId);
@@ -568,7 +639,7 @@ public class GouvernanceService {
     }
 
     // instantané stocké si présent ; sinon (demandes antérieures à la traçabilité) on reconstitue l'état actuel
-    private AccessRequestOriginDto originOf(AccessRequest request, List<AccessRequestGate> gates) {
+    private AccessRequestOriginDto originOf(AccessRequest request, List<AccessRequestGate> gates, Lookup lookup) {
         Map<String, Object> snapshot = request.getOrigin();
         if (snapshot != null && !snapshot.isEmpty()) {
             try {
@@ -578,7 +649,7 @@ public class GouvernanceService {
             }
         }
         return buildOrigin(request.getProfileId(),
-            gates.stream().map(AccessRequestGate::getOrganizationId).distinct().toList());
+            gates.stream().map(AccessRequestGate::getOrganizationId).distinct().toList(), lookup);
     }
 
     private String resolveClientIdSafe(String clientUuid) {
