@@ -36,6 +36,7 @@ public class SecurityConfig {
             .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
             .requestMatchers(org.springframework.http.HttpMethod.POST, "/governance/access-requests").authenticated()
             .requestMatchers(org.springframework.http.HttpMethod.GET, "/governance/profiles/**").authenticated()
+            .requestMatchers(org.springframework.http.HttpMethod.GET, "/governance/access-requests/history/**").authenticated()
             .requestMatchers("/encrypt", "/decrypt").hasRole("SUPERADMIN")
             .requestMatchers("/keycloak/**", "/governance/**", "/audit/**", "/policy/**").hasAnyRole("ADMIN", "SUPERADMIN")
             .requestMatchers("/api/**").authenticated()
